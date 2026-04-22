@@ -56,43 +56,10 @@ function apiAuth() {
               console.log(`getUserInfo failed:`, JSON.stringify(err));
             },
           });
-          // 调用 showToast API 弹出全局提示框，详细文档参见https://open.feishu.cn/document/uAjLw4CM/uYjL24iN/block/api/showtoast
-          tt.showToast({
-            title: "鉴权成功",
-            icon: "success",
-            duration: 3000,
-            success(res) {
-              console.log("showToast 调用成功", res.errMsg);
-            },
-            fail(res) {
-              console.log("showToast 调用失败", res.errMsg);
-            },
-            complete(res) {
-              console.log("showToast 调用结束", res.errMsg);
-            },
-          });
         });
       })
     )
     .catch(function (e) {
       console.error(e);
     });
-}
-
-function showUser(res) {
-  // 展示用户信息
-  // 头像
-  $("#img_div").html(
-    `<img src="${res.avatarUrl}" width="100%" height=""100%/>`
-  );
-  // 名称
-  $("#hello_text_name").text(
-    lang === "zh_CN" || lang === "zh-CN"
-      ? `${res.nickName}`
-      : `${res.i18nName.en_us}`
-  );
-  // 欢迎语
-  $("#hello_text_welcome").text(
-    lang === "zh_CN" || lang === "zh-CN" ? "欢迎使用飞书" : "welcome to Feishu"
-  );
 }
