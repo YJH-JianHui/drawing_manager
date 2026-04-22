@@ -68,6 +68,12 @@ def get_config_parameters():
         }
     )
 
+# ============= 新增：图纸借出页面路由 =============
+@app.route("/checkout", methods=["GET"])
+def get_checkout_page():
+    return render_template("checkout.html")
+# ===============================================
+
 
 if __name__ == "__main__":
     # 以debug模式运行本网页应用

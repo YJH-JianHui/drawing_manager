@@ -63,3 +63,49 @@ function apiAuth() {
       console.error(e);
     });
 }
+
+function showUser(userInfo) {
+  $("#user-avatar").attr("src", userInfo.avatarUrl);
+  $("#user-name").text(userInfo.nickName);
+  // 数据加载完毕后，取消隐藏用户卡片
+  $("#user-info-card").removeClass("hidden");
+}
+
+// ====== 三个卡片的点击事件交互处理 ======
+
+// 1. 处理“图纸借出”
+function handleCheckout() {
+  // 点击后不再直接扫码，而是跳转到借出专用页面
+  window.location.href = "/checkout";
+}
+
+// 2. 处理“图纸归还”
+function handleReturn() {
+  if (window.tt && window.tt.scanCode) {
+    tt.scanCode({
+      scanType: ['barCode', 'qrCode'],
+      success(res) {
+        alert(`归还成功：识别到图纸编号\n${res.result}`);
+        // TODO: 这里可以发请求给后端进行归还登记
+      },
+      fail(err) {
+        console.error("扫码失败:", err);
+      }
+    });
+  } else {
+    alert("请在飞书客户端内打开以使用扫码功能！");
+  }
+}
+
+// 3. 处理“统计分析”
+function handleStats() {
+  // TODO: 后续在这里做页面跳转
+  alert("即将跳转到统计分析页面...");
+  // window.location.href = "/statistics"; // 假设后端的路由
+}
+
+// 4. 处理“系统设置”
+function handleSettings() {
+  alert("即将进入系统设置...");
+  // window.location.href = "/settings";
+}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>图纸借出录入</title>
+  <link rel="stylesheet" href="/public/checkout.css" />
+  <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+  <script type="text/javascript" src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16.js"></script>
+  <!-- 在页面上添加VConsole方便调试-->
+  <script src="https://unpkg.com/vconsole/dist/vconsole.min.js"></script>
+  <script>
+    var vConsole = new window.VConsole();
+  </script>
+</head>
+<body>
+  <div class="checkout-container">
+    <!-- 顶部导航 -->
+    <div class="header">
+      <div class="back-btn" onclick="history.back()">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        返回
+      </div>
+      <h2>图纸借出</h2>
+      <div style="width: 60px;"></div> <!-- 占位平衡 -->
+    </div>
+
+    <!-- 操作区：选借用人 + 扫码 -->
+    <div class="action-area">
+      <!-- 新增：借用人选择卡片 -->
+      <div class="borrower-section" onclick="selectBorrower()">
+        <div class="borrower-info">
+          <div class="borrower-label">借用人 <span style="color: #f54a45;">*</span></div>
+          <div class="borrower-name unselected" id="borrower-name">请点击选择借用人</div>
+        </div>
+        <div class="borrower-arrow">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+        </div>
+      </div>
+
+      <!-- 扫码按钮 -->
+      <button class="btn-scan" onclick="startScan()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" style="margin-right: 8px;">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+          <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+          <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+          <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+        </svg>
+        扫码录入图纸
+      </button>
+    </div>
+
+    <!-- 扫码结果列表区 -->
+    <div class="list-area">
+      <div class="list-header">
+        <span>已扫描记录 (<span id="record-count">0</span>)</span>
+      </div>
+      <div id="record-list">
+        <!-- 动态渲染的记录卡片将插入到这里 -->
+        <div class="empty-tip" id="empty-tip">暂无数据，请点击上方按钮扫码</div>
+      </div>
+    </div>
+
+    <!-- 底部提交区 -->
+    <div class="footer-area hidden" id="footer-area">
+      <button class="btn-submit" onclick="submitRecords()">确认提交</button>
+    </div>
+  </div>
+
+  <script src="/public/checkout.js"></script>
+</body>
+</html>
