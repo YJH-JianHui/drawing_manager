@@ -37,10 +37,30 @@ function selectBorrower() {
 }
 
 function startScan() {
-  if (!currentBorrower) { alert("请先选择借用人！"); return; }
+  if (!currentBorrower) {
+    alert("请先选择借用人！");
+    return;
+  }
+
+  if (!window.tt || !window.tt.scanCode) {
+    alert("扫码组件未就绪，请在飞书客户端中打开");
+    return;
+  }
+
+  // 弹出扫码界面
   tt.scanCode({
     scanType: ['barCode', 'qrCode'],
-    success(res) { processScanData(res.result); }
+    // 注意：H5 环境下 keepAlive 可能失效，我们靠下面的 success 回调实现连续
+    success(res) {
+      // 1. 处理本次扫码的数据
+      // 我们把重新触发扫码的逻辑写在处理函数里
+      processScanData(res.result);
+    },
+    fail(err) {
+      // 当用户点击扫码界面的“返回”或“关闭”按钮时，会走到这里
+      console.log("用户停止了扫码");
+      renderList();
+    }
   });
 }
 
@@ -54,22 +74,49 @@ function processScanData(resultStr) {
     const cNum = data.chartNum || "无图号";
     const oNum = data.orderNum || "无";
 
-    // 1. 初始化分组
     if (!groupedData[bNum]) {
       groupedData[bNum] = { purpose: "", items: [] };
     }
 
-    // 2. 组内查重
     const isDuplicate = groupedData[bNum].items.some(it => it.chartNum === cNum);
+
     if (isDuplicate) {
-      if (!confirm(`单号 ${bNum} 下已存在图号 ${cNum}，是否重复添加？`)) return;
+      // 【注意】：如果遇到重复，confirm 会中断连续扫码，等待用户点击
+      if (!confirm(`单号 ${bNum} 下已存在图号 ${cNum}，是否重复添加？`)) {
+        // 如果点取消，依然继续下一次扫码
+        setTimeout(startScan, 300);
+        return;
+      }
     }
 
-    // 3. 压入数据
+    // 添加数据
     groupedData[bNum].items.push({ chartNum: cNum, orderNum: oNum });
+
+    // 成功提示：改用非阻塞的 Toast
+    tt.showToast({
+      title: `录入成功: ${cNum}`,
+      icon: 'success',
+      duration: 1000 // 提示 1 秒
+    });
+
     renderList();
 
-  } catch (e) { alert("扫码内容格式错误"); }
+    // 【核心改进】：处理完当前数据后，自动触发下一次扫码
+    // 使用 setTimeout 是为了给用户一点点“视觉缓冲”，防止界面切换太生硬
+    setTimeout(() => {
+      startScan();
+    }, 300);
+
+  } catch (error) {
+    console.error(error);
+    tt.showToast({
+      title: "二维码解析失败",
+      icon: 'fail',
+      duration: 1500
+    });
+    // 解析失败也继续下一次，除非用户手动点关闭
+    setTimeout(startScan, 500);
+  }
 }
 
 // 渲染列表：按单号分组展示

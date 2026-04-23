@@ -108,3 +108,7 @@ function handleSettings() {
   alert("即将进入系统设置...");
   // window.location.href = "/settings";
 }
+
+function handleQuery() {
+  window.location.href = "/query";
+}

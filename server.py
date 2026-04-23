@@ -74,6 +74,10 @@ def get_checkout_page():
     return render_template("checkout.html")
 # ===============================================
 
+@app.route("/query", methods=["GET"])
+def get_query_page():
+    return render_template("query.html")
+
 
 if __name__ == "__main__":
     # 以debug模式运行本网页应用
