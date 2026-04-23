@@ -3,72 +3,71 @@ let lang = window.navigator.language;
 $("document").ready(apiAuth());
 
 function apiAuth() {
-  console.log("start apiAuth");
   if (!window.h5sdk) {
-    console.log("invalid h5sdk");
-    alert("please open in feishu");
+    // 如果不在飞书内，显示错误提示并停止
+    $("#loading-screen p").text("请在飞书客户端内打开").css("color", "#f54a45");
+    $(".loader").hide();
     return;
   }
 
-  // 调用config接口的当前网页url
   const url = encodeURIComponent(location.href.split("#")[0]);
-  console.log("接入方前端将需要鉴权的url发给接入方服务端,url为:", url);
-  // 向接入方服务端发起请求，获取鉴权参数（appId、timestamp、nonceStr、signature）
+
   fetch(`/get_config_parameters?url=${url}`)
-    .then((response) =>
-      response.json().then((res) => {
-        console.log(
-          "接入方服务端返回给接入方前端的结果(前端调用config接口的所需参数):", res
-        );
-        // 通过error接口处理API验证失败后的回调
-        window.h5sdk.error((err) => {
-          throw ("h5sdk error:", JSON.stringify(err));
-        });
-        // 调用config接口进行鉴权
-        window.h5sdk.config({
-          appId: res.appid,
-          timestamp: res.timestamp,
-          nonceStr: res.noncestr,
-          signature: res.signature,
-          jsApiList: [],
-          //鉴权成功回调
-          onSuccess: (res) => {
-            console.log(`config success: ${JSON.stringify(res)}`);
+    .then((response) => response.json())
+    .then((res) => {
+      window.h5sdk.config({
+        appId: res.appid,
+        timestamp: res.timestamp,
+        nonceStr: res.noncestr,
+        signature: res.signature,
+        jsApiList: ['getUserInfo'],
+        onSuccess: (res) => {
+          console.log("鉴权成功");
+        },
+        onFail: (err) => {
+          $("#loading-screen p").text("登录鉴权失败，请重试");
+        }
+      });
+
+      window.h5sdk.ready(() => {
+        tt.getUserInfo({
+          success(res) {
+            console.log("登录成功");
+            // 1. 填充用户信息
+            showUser(res.userInfo);
+
+            // 2. 隐藏加载屏，显示主程序
+            enterApp();
           },
-          //鉴权失败回调
-          onFail: (err) => {
-            throw `config failed: ${JSON.stringify(err)}`;
+          fail(err) {
+            $("#loading-screen p").text("获取用户信息失败");
+            console.error(err);
           },
         });
-        // 完成鉴权后，便可在 window.h5sdk.ready 里调用 JSAPI
-        window.h5sdk.ready(() => {
-          // window.h5sdk.ready回调函数在环境准备就绪时触发
-          // 调用 getUserInfo API 获取已登录用户的基本信息，详细文档参见https://open.feishu.cn/document/uYjL24iN/ucjMx4yNyEjL3ITM
-          tt.getUserInfo({
-            // getUserInfo API 调用成功回调
-            success(res) {
-              console.log(`getUserInfo success: ${JSON.stringify(res)}`);
-              // 单独定义的函数showUser，用于将用户信息展示在前端页面上
-              showUser(res.userInfo);
-            },
-            // getUserInfo API 调用失败回调
-            fail(err) {
-              console.log(`getUserInfo failed:`, JSON.stringify(err));
-            },
-          });
-        });
-      })
-    )
-    .catch(function (e) {
-      console.error(e);
+      });
+    })
+    .catch((e) => {
+      $("#loading-screen p").text("网络连接异常");
     });
 }
 
 function showUser(userInfo) {
   $("#user-avatar").attr("src", userInfo.avatarUrl);
   $("#user-name").text(userInfo.nickName);
-  // 数据加载完毕后，取消隐藏用户卡片
-  $("#user-info-card").removeClass("hidden");
+}
+
+// 核心控制函数：进入应用
+function enterApp() {
+  // 1. 先淡出加载层
+  $("#loading-screen").css("opacity", "0");
+
+  setTimeout(() => {
+    // 2. 彻底移除加载层
+    $("#loading-screen").addClass("hidden");
+
+    // 3. 显示主模块并添加一个舒适的渐显动画
+    $("#main-app").removeClass("hidden").addClass("fade-in");
+  }, 500); // 等待淡出动画完成
 }
 
 // ====== 三个卡片的点击事件交互处理 ======

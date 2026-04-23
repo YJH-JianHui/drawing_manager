@@ -71,3 +71,96 @@ body {
 .borrower-name { font-size: 16px; font-weight: 600; color: #1f2329; }
 .borrower-name.unselected { color: #8f959e; font-weight: 400; }
 .borrower-arrow { color: #bbbfc4; display: flex; align-items: center; }
+
+/* 分组卡片样式 */
+.group-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  border: 1px solid #dee0e3;
+}
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #eff0f1;
+  margin-bottom: 12px;
+}
+.group-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2329;
+  display: flex;
+  align-items: center;
+}
+.group-title::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background: #3370ff;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+/* 用途输入框样式 */
+.purpose-wrapper {
+  margin-bottom: 12px;
+  background: #f5f6f7;
+  padding: 10px;
+  border-radius: 8px;
+}
+.purpose-label {
+  font-size: 12px;
+  color: #646a73;
+  margin-bottom: 4px;
+}
+.purpose-input {
+  width: 100%;
+  border: 1px solid #dee0e3;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+}
+.purpose-input:focus {
+  border-color: #3370ff;
+  background: #fff;
+}
+
+/* 内部图纸行记录样式 */
+.item-table { width: 100%; border-collapse: collapse; }
+.item-row { border-bottom: 1px solid #f2f3f5; }
+.item-row:last-child { border-bottom: none; }
+.item-cell { padding: 10px 4px; font-size: 13px; vertical-align: middle; }
+.cell-chart { color: #1f2329; font-weight: 500; }
+.cell-order { color: #8f959e; font-size: 12px; }
+.btn-row-del { color: #f54a45; font-size: 12px; cursor: pointer; text-align: right; }
+
+/* 重复行的舒适高亮样式 */
+.item-row.is-duplicate {
+  background-color: #fff9db; /* 柔和的淡黄色背景 */
+  border-left: 4px solid #fcc419; /* 左侧琥珀色边框，增加辨识度 */
+}
+
+/* 重复标记的小标签 */
+.duplicate-badge {
+  display: inline-block;
+  font-size: 10px;
+  background-color: #fff3bf;
+  color: #f08c00;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  border: 1px solid #ffe066;
+  font-weight: bold;
+}
+
+/* 确保表格行有相对定位，方便边框显示 */
+.item-row {
+  position: relative;
+  transition: background-color 0.3s;
+}

@@ -1,208 +1,185 @@
-let currentUser = "获取中..."; // 当前操作人（拿手机扫码的人）
-let currentBorrower = null;    // 当前借用人（所选中的人）
-let scannedRecords =[];       // 存储扫码数据的数组
+let currentUser = "获取中...";
+let currentBorrower = null;
+// 数据结构改为：{ "单号1": { purpose: "", items: [ {图号, 工作令}, ... ] }, "单号2": ... }
+let groupedData = {};
 
-$(document).ready(function () {
-  apiAuth();
-});
+$(document).ready(apiAuth);
 
-// ==== 飞书鉴权与用户信息获取 ====
 function apiAuth() {
-  if (!window.h5sdk) {
-    alert("请在飞书内打开");
-    return;
-  }
+  if (!window.h5sdk) return;
   const url = encodeURIComponent(location.href.split("#")[0]);
   fetch(`/get_config_parameters?url=${url}`)
-    .then((response) => response.json())
-    .then((res) => {
-      window.h5sdk.error((err) => { console.error("h5sdk error:", err); });
+    .then(r => r.json())
+    .then(res => {
       window.h5sdk.config({
-        appId: res.appid,
-        timestamp: res.timestamp,
-        nonceStr: res.noncestr,
-        signature: res.signature,
-        jsApiList:['scanCode', 'chooseContact', 'getUserInfo'],
-        onSuccess: (res) => { console.log("鉴权成功"); }
-      });
-      window.h5sdk.ready(() => {
-        tt.getUserInfo({
-          success(infoRes) {
-            currentUser = infoRes.userInfo.nickName;
-            console.log("当前操作人:", currentUser);
-          }
-        });
+        appId: res.appid, timestamp: res.timestamp, nonceStr: res.noncestr, signature: res.signature,
+        jsApiList: ['scanCode', 'chooseContact', 'getUserInfo'],
+        onSuccess: () => {
+          window.h5sdk.ready(() => {
+            tt.getUserInfo({ success: (res) => { currentUser = res.userInfo.nickName; } });
+          });
+        }
       });
     });
 }
 
-// ==== 1. 选择借用人逻辑 ====
 function selectBorrower() {
-  if (!window.tt || !window.tt.chooseContact) {
-    alert("请在飞书客户端内打开以使用选人功能！");
-    return;
-  }
-
   tt.chooseContact({
     multi: false,
-    ignore: false,
     externalContact: false,
-    enableChooseDepartment: false,
     success(res) {
       if (res.data && res.data.length > 0) {
-        const user = res.data[0];
-        currentBorrower = {
-          name: user.name,
-          id: user.openId
-        };
-        // 将选中的名字更新到页面上，并移除未选择的灰色样式
+        currentBorrower = { name: res.data[0].name, id: res.data[0].openId };
         $("#borrower-name").text(currentBorrower.name).removeClass("unselected");
       }
-    },
-    fail(err) {
-      console.log("选人取消或失败:", err);
     }
   });
 }
 
-// ==== 2. 扫码逻辑 ====
 function startScan() {
-  // 【关键】：校验是否已选择借用人
-  if (!currentBorrower) {
-    alert("请先在上方选择【借用人】后再进行扫码！");
-    return;
-  }
-
-  if (!window.tt || !window.tt.scanCode) {
-    alert("扫码组件未就绪，请在飞书客户端中打开");
-    return;
-  }
-
+  if (!currentBorrower) { alert("请先选择借用人！"); return; }
   tt.scanCode({
-    scanType:['barCode', 'qrCode'],
-    success(res) {
-      processScanData(res.result);
-    },
-    fail(err) {
-      console.log("取消扫码或扫码失败", err);
-    }
+    scanType: ['barCode', 'qrCode'],
+    success(res) { processScanData(res.result); }
   });
 }
 
-// ==== 3. 解析扫码数据并查重 ====
 function processScanData(resultStr) {
   try {
     let cleanStr = resultStr.trim();
-    if (cleanStr.endsWith('|')) {
-      cleanStr = cleanStr.slice(0, -1);
-    }
-
+    if (cleanStr.endsWith('|')) cleanStr = cleanStr.slice(0, -1);
     const data = JSON.parse(cleanStr);
 
-    const newRecord = {
-      borrowedNum: data.borrowedNum || "无",
-      chartNum: data.chartNum || "无",
-      orderNum: data.orderNum || "无",
-      operator: currentUser
-    };
+    const bNum = data.borrowedNum || "未知单号";
+    const cNum = data.chartNum || "无图号";
+    const oNum = data.orderNum || "无";
 
-    const isDuplicate = scannedRecords.some(
-      (record) => record.borrowedNum === newRecord.borrowedNum && record.chartNum === newRecord.chartNum
-    );
-
-    if (isDuplicate) {
-      const confirmAdd = confirm(`借用单号: ${newRecord.borrowedNum}\n图号: ${newRecord.chartNum}\n已存在，是否确认重复录入？`);
-      if (!confirmAdd) {
-        return;
-      }
+    // 1. 初始化分组
+    if (!groupedData[bNum]) {
+      groupedData[bNum] = { purpose: "", items: [] };
     }
 
-    scannedRecords.push(newRecord);
+    // 2. 组内查重
+    const isDuplicate = groupedData[bNum].items.some(it => it.chartNum === cNum);
+    if (isDuplicate) {
+      if (!confirm(`单号 ${bNum} 下已存在图号 ${cNum}，是否重复添加？`)) return;
+    }
+
+    // 3. 压入数据
+    groupedData[bNum].items.push({ chartNum: cNum, orderNum: oNum });
     renderList();
 
-  } catch (error) {
-    console.error("JSON解析错误:", error);
-    alert("无法解析该二维码内容！\n内容：" + resultStr);
-  }
+  } catch (e) { alert("扫码内容格式错误"); }
 }
 
-// ==== 4. 渲染列表到页面 ====
+// 渲染列表：按单号分组展示
 function renderList() {
   const $list = $("#record-list");
   $list.empty();
-  $("#record-count").text(scannedRecords.length);
+  const keys = Object.keys(groupedData);
 
-  if (scannedRecords.length === 0) {
-    $list.append('<div class="empty-tip" id="empty-tip">暂无数据，请点击上方按钮扫码</div>');
+  // 计算总件数
+  const totalItems = keys.reduce((acc, k) => acc + groupedData[k].items.length, 0);
+  $("#record-count").text(totalItems);
+
+  if (keys.length === 0) {
+    $list.append('<div class="empty-tip">暂无数据，请扫码录入</div>');
     $("#footer-area").addClass("hidden");
     return;
   }
-
   $("#footer-area").removeClass("hidden");
 
-  scannedRecords.forEach((record, index) => {
-    const cardHtml = `
-      <div class="record-card">
-        <div class="btn-delete" onclick="deleteRecord(${index})">删除</div>
-        <div class="record-row"><div class="record-label">借用单号:</div><div class="record-value">${record.borrowedNum}</div></div>
-        <div class="record-row"><div class="record-label">图 号:</div><div class="record-value">${record.chartNum}</div></div>
-        <div class="record-row"><div class="record-label">工作令号:</div><div class="record-value">${record.orderNum}</div></div>
-        <div class="record-row"><div class="record-label">操 作 人:</div><div class="record-value">${record.operator}</div></div>
+  keys.forEach(bNum => {
+    const group = groupedData[bNum];
+
+    // --- 【新增逻辑】：统计当前单号下各图号出现的次数 ---
+    const chartCounts = {};
+    group.items.forEach(it => {
+      chartCounts[it.chartNum] = (chartCounts[it.chartNum] || 0) + 1;
+    });
+    // ----------------------------------------------
+
+    const groupHtml = `
+      <div class="group-card">
+        <div class="group-header">
+          <div class="group-title">单号：${bNum}</div>
+          <div class="btn-row-del" style="font-weight:bold" onclick="deleteGroup('${bNum}')">删除整单</div>
+        </div>
+        
+        <div class="purpose-wrapper">
+          <div class="purpose-label">用途 <span style="color:#f54a45">*</span></div>
+          <input type="text" class="purpose-input" placeholder="请输入此单图纸的用途" 
+            value="${group.purpose}" 
+            oninput="updatePurpose('${bNum}', this.value)">
+        </div>
+
+        <table class="item-table">
+          ${group.items.map((item, idx) => {
+            // 判断当前图号是否重复
+            const isDup = chartCounts[item.chartNum] > 1;
+            
+            return `
+            <tr class="item-row ${isDup ? 'is-duplicate' : ''}">
+              <td class="item-cell">
+                <div class="cell-chart">
+                  ${item.chartNum}
+                  ${isDup ? '<span class="duplicate-badge">重复</span>' : ''}
+                </div>
+                <div class="cell-order">工作令：${item.orderNum}</div>
+              </td>
+              <td class="item-cell btn-row-del" onclick="deleteItem('${bNum}', ${idx})">移除</td>
+            </tr>
+            `;
+          }).join('')}
+        </table>
       </div>
     `;
-    $list.append(cardHtml);
+    $list.append(groupHtml);
   });
 }
 
-// ==== 5. 删除指定记录 ====
-function deleteRecord(index) {
-  scannedRecords.splice(index, 1);
+// 实时保存用途输入内容
+function updatePurpose(bNum, val) {
+  groupedData[bNum].purpose = val;
+}
+
+function deleteItem(bNum, idx) {
+  groupedData[bNum].items.splice(idx, 1);
+  if (groupedData[bNum].items.length === 0) delete groupedData[bNum];
   renderList();
 }
 
-// ==== 6. 提交数据逻辑 ====
+function deleteGroup(bNum) {
+  if (confirm(`确定删除单号 ${bNum} 下的所有记录吗？`)) {
+    delete groupedData[bNum];
+    renderList();
+  }
+}
+
 function submitRecords() {
-  if (scannedRecords.length === 0) return;
-  if (!currentBorrower) {
-    alert("借用人信息丢失，请重新选择！");
-    return;
+  const keys = Object.keys(groupedData);
+  if (keys.length === 0) return;
+
+  // 【必填校验】：检查每个单号是否都填了用途
+  for (let bNum of keys) {
+    if (!groupedData[bNum].purpose.trim()) {
+      alert(`请填写单号【${bNum}】的用途！`);
+      return;
+    }
   }
 
-  if (confirm(`确认将这 ${scannedRecords.length} 份图纸借给【${currentBorrower.name}】吗？`)) {
-
-    // 打包最终要传给后端的数据
+  if (confirm(`确认提交这些图纸借给【${currentBorrower.name}】吗？`)) {
     const payload = {
-      borrowerName: currentBorrower.name,
-      borrowerId: currentBorrower.id,
+      borrower: currentBorrower,
       operator: currentUser,
-      records: scannedRecords
+      data: groupedData
     };
+    console.log("提交数据：", payload);
 
-    console.log("准备发送给后端的数据:", JSON.stringify(payload));
-
-    // ======== 前端模拟提交成功交互 ========
-    alert(`提交成功！\n图纸已成功登记借给：${currentBorrower.name}`);
-
-    // 提交成功后，重置数据和页面状态，准备下一批次扫描
-    scannedRecords = [];         // 清空扫描记录数组
-    currentBorrower = null;      // 重置借用人对象
-
-    // 恢复界面显示状态
+    alert("提交成功！");
+    groupedData = {};
+    currentBorrower = null;
     $("#borrower-name").text("请点击选择借用人").addClass("unselected");
-    renderList(); // 重新渲染列表（此时会显示“暂无数据”并隐藏提交按钮）
-
-    /*
-    // 后期对接真实后端 API 示例：
-    fetch('/api/submit_checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-       alert("后台存储成功！");
-       // 执行清空逻辑...
-    });
-    */
+    renderList();
   }
 }
