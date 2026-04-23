@@ -3,3 +3,5 @@ python-dotenv
 requests
 pycryptodome
 Werkzeug<3
+pandas
+openpyxl

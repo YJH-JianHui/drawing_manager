@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>借用单导入</title>
+    <link rel="stylesheet" href="/public/import.css">
+    <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+    <script src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16.js"></script>
+    <!-- 在页面上添加VConsole方便调试-->
+    <script src="https://unpkg.com/vconsole/dist/vconsole.min.js"></script>
+    <script>
+        var vConsole = new window.VConsole();
+    </script>
+</head>
+<body>
+<div class="import-container">
+    <div class="header">
+        <button class="back-btn" onclick="location.href='/'">返回</button>
+        <h2>导入借用单</h2>
+    </div>
+
+    <!-- 这里的 onclick 触发下面隐藏 input 的点击 -->
+    <div class="upload-box" onclick="document.getElementById('file-input').click()">
+        <div class="icon">📊</div>
+        <p>点击选择借用单 Excel</p>
+        <p style="font-size: 12px; color: #8f959e; margin-top: 5px;">支持手机本地文件与云文档</p>
+        <button class="select-btn">选择文件</button>
+    </div>
+
+    <!-- 隐藏的原始文件输入框 -->
+    <input type="file" id="file-input" accept=".xlsx, .xls" style="display: none;" onchange="handleFileChange(this)">
+
+    <div class="tips">
+        <p>※ 系统会自动从文件名识别 Y 开头的借用单号</p>
+    </div>
+</div>
+
+<!-- 引入对应的模块 JS -->
+<script src="/public/import.js"></script>
+</body>
+</html>

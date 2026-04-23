@@ -1,0 +1,24 @@
+.import-container { padding: 20px; max-width: 600px; margin: 0 auto; }
+.header { display: flex; align-items: center; margin-bottom: 30px; }
+.back-btn { border: none; background: none; color: #3370ff; margin-right: 15px; cursor: pointer; }
+
+.upload-box {
+    border: 2px dashed #dee0e3;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    background: #fff;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+.upload-box:hover { border-color: #3370ff; background: #f0f5ff; }
+.upload-box .icon { font-size: 48px; margin-bottom: 10px; }
+.select-btn {
+    background: #3370ff; color: #fff; border: none; padding: 8px 20px;
+    border-radius: 6px; margin-top: 15px;
+}
+
+#file-info { margin-top: 20px; padding: 15px; background: #fff; border-radius: 8px; border: 1px solid #e8e8e8; text-align: center;}
+.confirm-btn { background: #34c759; color: #fff; border: none; padding: 10px 40px; border-radius: 8px; margin-top: 10px; cursor: pointer; width: 100%;}
+
+.hidden { display: none; }

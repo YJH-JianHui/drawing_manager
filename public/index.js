@@ -20,7 +20,7 @@ function apiAuth() {
         timestamp: res.timestamp,
         nonceStr: res.noncestr,
         signature: res.signature,
-        jsApiList: ['getUserInfo'],
+        jsApiList: ['getUserInfo','filePicker'],
         onSuccess: (res) => {
           console.log("鉴权成功");
         },
@@ -111,4 +111,9 @@ function handleSettings() {
 
 function handleQuery() {
   window.location.href = "/query";
+}
+
+function handleImport() {
+  // 跳转到我们刚才创建的导入页面路由
+  window.location.href = "/import";
 }

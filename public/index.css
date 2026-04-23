@@ -1,176 +1,210 @@
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 body {
-  background-color: #ebf1fd;
-  /* 使用飞书标准中文字体栈 */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  color: #1f2329;
+    background-color: #ebf1fd;
+    /* 使用飞书标准中文字体栈 */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1f2329;
 }
 
 .app-container {
-  max-width: 800px; /* 限制 PC 端最大宽度 */
-  margin: 0 auto;
-  padding: 20px;
+    max-width: 800px; /* 限制 PC 端最大宽度 */
+    margin: 0 auto;
+    padding: 20px;
 }
 
 .hidden {
-  display: none !important;
+    display: none !important;
 }
 
 /* 用户信息卡片 */
 .user-card {
-  display: flex;
-  align-items: center;
-  background: #ffffff;
-  padding: 16px 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    background: #ffffff;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
 }
 
 #user-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  margin-right: 16px;
-  object-fit: cover;
-  border: 1px solid #e8e8e8;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    margin-right: 16px;
+    object-fit: cover;
+    border: 1px solid #e8e8e8;
 }
 
 .user-greeting h2 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 4px;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
 }
 
 .user-greeting p {
-  font-size: 13px;
-  color: #8f959e;
+    font-size: 13px;
+    color: #8f959e;
 }
 
 /* 核心功能网格 */
 .menu-grid {
-  display: grid;
-  /* 响应式：屏幕窄则一行展示较少，宽则自动排布 */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 16px;
+    display: grid;
+    /* 响应式：屏幕窄则一行展示较少，宽则自动排布 */
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
 }
 
 /* 菜单项卡片 */
 .menu-item {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 24px 16px;
-  text-align: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px 16px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 /* 移动端点击按下时的微小缩放反馈 */
 .menu-item:active {
-  transform: scale(0.96);
-  background: #f8f9fa;
+    transform: scale(0.96);
+    background: #f8f9fa;
 }
 
 /* 桌面端悬停效果 */
 @media (hover: hover) {
-  .menu-item:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  }
+    .menu-item:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    }
 }
 
 /* 图标包裹区：渐变色背景 */
 .icon-wrapper {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
 }
 
 .icon-wrapper svg {
-  width: 28px;
-  height: 28px;
-  fill: #ffffff;
+    width: 28px;
+    height: 28px;
+    fill: #ffffff;
 }
 
 /* 为三个功能定义符合飞书色调的渐变 */
-.checkout-icon { background: linear-gradient(135deg, #3370ff 0%, #5e8dff 100%); } /* 飞书蓝 */
-.return-icon { background: linear-gradient(135deg, #34c759 0%, #5ee07f 100%); }   /* 安全绿 */
-.stats-icon { background: linear-gradient(135deg, #ff9a00 0%, #ffc04d 100%); }    /* 活力橙 */
-.settings-icon { background: linear-gradient(135deg, #acacaa 0%, #d5d5d5 100%); } /* 极客紫 */
-.query-icon { background: linear-gradient(135deg, #00b5ad 0%, #2185d0 100%); }
+.checkout-icon {
+    background: linear-gradient(135deg, #3370ff 0%, #5e8dff 100%);
+}
+
+/* 飞书蓝 */
+.return-icon {
+    background: linear-gradient(135deg, #34c759 0%, #5ee07f 100%);
+}
+
+/* 安全绿 */
+.stats-icon {
+    background: linear-gradient(135deg, #ff9a00 0%, #ffc04d 100%);
+}
+
+/* 活力橙 */
+.settings-icon {
+    background: linear-gradient(135deg, #acacaa 0%, #d5d5d5 100%);
+}
+
+/* 极客紫 */
+.query-icon {
+    background: linear-gradient(135deg, #00b5ad 0%, #2185d0 100%);
+}
+
+.import-icon {
+    background: linear-gradient(135deg, #475569 0%, #1e293b 100%);
+}
 
 .menu-item h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 6px;
 }
 
 .menu-item p {
-  font-size: 12px;
-  color: #8f959e;
+    font-size: 12px;
+    color: #8f959e;
 }
 
 /* 全屏加载背景 */
 #loading-screen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: #ffffff;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  transition: opacity 0.5s ease;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease;
 }
 
 .loader-container {
-  text-align: center;
+    text-align: center;
 }
 
 /* 飞书蓝旋转圆环 */
 .loader {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3370ff; /* 飞书品牌蓝 */
-  border-radius: 50%;
-  margin: 0 auto 16px;
-  animation: spin 1s linear infinite;
+    width: 48px;
+    height: 48px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3370ff; /* 飞书品牌蓝 */
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    animation: spin 1s linear infinite;
 }
 
 #loading-screen p {
-  color: #8f959e;
-  font-size: 14px;
+    color: #8f959e;
+    font-size: 14px;
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 /* 渐显动画 */
 .fade-in {
-  animation: fadeIn 0.8s ease forwards;
+    animation: fadeIn 0.8s ease forwards;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.hidden { display: none !important; }
+.hidden {
+    display: none !important;
+}
