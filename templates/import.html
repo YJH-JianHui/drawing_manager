@@ -2,24 +2,31 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>借用单导入</title>
     <link rel="stylesheet" href="/public/import.css">
     <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
     <script src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16.js"></script>
-    <!-- 在页面上添加VConsole方便调试-->
+    <script src="/public/feishu-auth.js"></script>
     <script src="https://unpkg.com/vconsole/dist/vconsole.min.js"></script>
-    <script>
-        var vConsole = new window.VConsole();
-    </script>
+    <script>var vConsole = new window.VConsole();</script>
 </head>
 <body>
 <div class="import-container">
+
+    <!-- 顶部导航：与 checkout.html 一致 -->
     <div class="header">
-        <button class="back-btn" onclick="location.href='/'">返回</button>
-        <h2>导入借用单</h2>
+        <div class="back-btn" onclick="history.back()">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            返回
+        </div>
+        <h2>借用单导入</h2>
+        <div style="width:60px;"></div>
     </div>
 
-    <!-- 这里的 onclick 触发下面隐藏 input 的点击 -->
+    <!-- 上传区 -->
     <div class="upload-box" onclick="document.getElementById('file-input').click()">
         <div class="icon">📊</div>
         <p>点击选择借用单 Excel</p>
@@ -27,15 +34,19 @@
         <button class="select-btn">选择文件</button>
     </div>
 
-    <!-- 隐藏的原始文件输入框 -->
     <input type="file" id="file-input" accept=".xlsx, .xls" style="display: none;" onchange="handleFileChange(this)">
 
+    <!-- 结果提示区（默认隐藏，导入后显示） -->
+    <div id="result-box" class="hidden"></div>
+
+    <!-- 使用提示 -->
     <div class="tips">
-        <p>※ 系统会自动从文件名识别 Y 开头的借用单号</p>
+        <p>※ 文件名格式：<strong>导入借用单_单号.xlsx</strong></p>
+        <p>※ 已有借出记录的单号无法重复导入</p>
     </div>
+
 </div>
 
-<!-- 引入对应的模块 JS -->
 <script src="/public/import.js"></script>
 </body>
 </html>
