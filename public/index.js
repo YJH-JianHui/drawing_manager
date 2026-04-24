@@ -69,4 +69,4 @@ function handleReturn() {
 }
 
 function handleStats()    { alert("即将跳转到统计分析页面..."); }
-function handleSettings() { alert("即将进入系统设置..."); }
+function handleSettings() { window.location.href = "/settings"; }

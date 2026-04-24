@@ -52,6 +52,16 @@ def init_db():
             status          TEXT DEFAULT '待借出'
         )
     ''')
+    # ── 新增：角色成员表 ──────────────────────────────────────────────
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS role_members (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_key  TEXT NOT NULL,
+            name      TEXT NOT NULL,
+            open_id   TEXT NOT NULL,
+            UNIQUE(role_key, open_id)
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -67,17 +77,20 @@ def auth_error_handler(ex):
 
 
 # ── 页面路由 ──────────────────────────────────────────────────────────────
-@app.route("/",         methods=["GET"])
-def get_home():          return render_template("index.html")
+@app.route("/",          methods=["GET"])
+def get_home():           return render_template("index.html")
 
-@app.route("/checkout", methods=["GET"])
-def get_checkout_page(): return render_template("checkout.html")
+@app.route("/checkout",  methods=["GET"])
+def get_checkout_page():  return render_template("checkout.html")
 
-@app.route("/query",    methods=["GET"])
-def get_query_page():    return render_template("query.html")
+@app.route("/query",     methods=["GET"])
+def get_query_page():     return render_template("query.html")
 
-@app.route("/import",   methods=["GET"])
-def import_page():       return render_template("import.html")
+@app.route("/import",    methods=["GET"])
+def import_page():        return render_template("import.html")
+
+@app.route("/settings",  methods=["GET"])          # ← 新增
+def settings_page():      return render_template("settings.html")
 
 
 @app.route("/get_config_parameters", methods=["GET"])
@@ -108,9 +121,8 @@ def get_order_detail(borrow_order_id):
 
     data = [dict(r) for r in rows]
 
-    # 计算该单整体状态供前端判断
     non_draw = [r for r in data if r['status'] != STATUS_NODRAW]
-    all_out  = bool(non_draw) and all(r['status'] == STATUS_OUT  for r in non_draw)
+    all_out  = bool(non_draw) and all(r['status'] == STATUS_OUT for r in non_draw)
     has_draft = any(r['status'] == STATUS_DRAFT for r in data)
 
     return jsonify({
@@ -138,7 +150,6 @@ def get_drafts():
 
 
 # ── API: 保存草稿 ──────────────────────────────────────────────────────────
-# 前端传已扫图号列表；后端把这些行标为草稿+保存时间，未扫的恢复待借出
 @app.route("/api/save_draft", methods=["POST"])
 def save_draft():
     body            = request.get_json()
@@ -151,14 +162,12 @@ def save_draft():
     saved_at = time.strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
 
-    # 先将该单旧草稿行全部重置为待借出
     conn.execute(
         "UPDATE drawing_records SET status=?, borrow_time=NULL "
         "WHERE borrow_order_id=? AND status=?",
         (STATUS_PENDING, borrow_order_id, STATUS_DRAFT)
     )
 
-    # 再把本次已扫的图号写为草稿（跳过无图行）
     if scanned_nos:
         ph = ','.join('?' * len(scanned_nos))
         conn.execute(
@@ -173,8 +182,6 @@ def save_draft():
 
 
 # ── API: 提交借出 ──────────────────────────────────────────────────────────
-# 仅当前端确认全部非无图行都已扫时才调用
-# 把该单所有非无图行更新为已借出，写借用人和借出时间
 @app.route("/api/submit_order", methods=["POST"])
 def submit_order():
     body            = request.get_json()
@@ -219,7 +226,6 @@ def upload_excel():
         df = df.fillna("")
 
         conn = get_conn()
-        # 已有借出记录的单不允许覆盖导入
         out_count = conn.execute(
             "SELECT COUNT(*) FROM drawing_records WHERE borrow_order_id=? AND status=?",
             (borrow_order_id, STATUS_OUT)
@@ -258,6 +264,59 @@ def upload_excel():
     except Exception as e:
         print(f"解析出错: {e}")
         return jsonify({"code": -1, "msg": f"解析失败: {str(e)}"})
+
+
+# ── API: 获取角色成员 ──────────────────────────────────────────────────────
+@app.route("/api/settings/roles", methods=["GET"])
+def get_roles():
+    conn = get_conn()
+    rows = conn.execute(
+        'SELECT role_key, name, open_id FROM role_members ORDER BY id'
+    ).fetchall()
+    conn.close()
+
+    data = {}
+    for row in rows:
+        key = row['role_key']
+        if key not in data:
+            data[key] = []
+        data[key].append({'name': row['name'], 'open_id': row['open_id']})
+
+    return jsonify({'code': 0, 'data': data})
+
+
+# ── API: 保存角色成员（整体覆盖） ─────────────────────────────────────────
+@app.route("/api/settings/roles", methods=["POST"])
+def save_roles():
+    body  = request.get_json()
+    roles = body.get('roles', {})
+
+    if not isinstance(roles, dict):
+        return jsonify({'code': -1, 'msg': '数据格式错误'})
+
+    conn = get_conn()
+    try:
+        conn.execute('DELETE FROM role_members')
+        for role_key, members in roles.items():
+            if not isinstance(members, list):
+                continue
+            for m in members:
+                name    = (m.get('name') or '').strip()
+                open_id = (m.get('open_id') or '').strip()
+                if not name:
+                    continue
+                conn.execute(
+                    'INSERT OR IGNORE INTO role_members (role_key, name, open_id) VALUES (?,?,?)',
+                    (role_key, name, open_id)
+                )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'code': -1, 'msg': f'保存失败: {str(e)}'})
+
+    conn.close()
+    return jsonify({'code': 0, 'msg': '保存成功'})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,278 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background-color: #ebf1fd;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1f2329;
+  /* 为底部固定按钮留白 */
+  padding-bottom: 90px;
+}
+
+/* ── 顶部导航（与 checkout.css 完全一致） ─────────────────────── */
+.settings-container { max-width: 800px; margin: 0 auto; }
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  padding: 14px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.back-btn {
+  display: flex;
+  align-items: center;
+  color: #3370ff;
+  cursor: pointer;
+  font-size: 15px;
+  gap: 4px;
+}
+.header h2 { font-size: 17px; font-weight: 600; }
+
+/* ── 页面说明条 ───────────────────────────────────────────────── */
+.page-desc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 16px 10px;
+  padding: 10px 14px;
+  background: #f0f4ff;
+  border-radius: 8px;
+  border: 1px solid #c9d9ff;
+  font-size: 13px;
+  color: #3370ff;
+}
+
+/* ── 骨架屏 ───────────────────────────────────────────────────── */
+.skeleton-card {
+  height: 88px;
+  background: linear-gradient(90deg, #e8ecf5 25%, #f5f7fd 50%, #e8ecf5 75%);
+  background-size: 200% 100%;
+  border-radius: 14px;
+  margin: 0 16px 14px;
+  animation: shimmer 1.4s infinite;
+  opacity: 0;
+  animation: shimmerIn 0.4s ease forwards, shimmer 1.4s 0.4s infinite;
+}
+@keyframes shimmerIn {
+  to { opacity: 1; }
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── 角色卡片 ─────────────────────────────────────────────────── */
+#roles-area { padding: 0 16px; }
+
+.role-card {
+  background: #fff;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.07);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+/* 卡片头部（渐变色，与 checkout group-header 一致） */
+.role-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 16px;
+  background: linear-gradient(135deg, #3370ff 0%, #5e8dff 100%);
+}
+/* 不同角色用不同主色，提升辨识度 */
+.role-card[data-role="super_admin"]    .role-header { background: linear-gradient(135deg, #1d3a8a 0%, #3370ff 100%); }
+.role-card[data-role="drawing_admin"]  .role-header { background: linear-gradient(135deg, #3370ff 0%, #5e8dff 100%); }
+.role-card[data-role="borrower"]       .role-header { background: linear-gradient(135deg, #00875a 0%, #34c759 100%); }
+.role-card[data-role="self_admin"]     .role-header { background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%); }
+.role-card[data-role="purchase_admin"] .role-header { background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%); }
+.role-card[data-role="outsource_admin"]{ }
+.role-card[data-role="outsource_admin"] .role-header { background: linear-gradient(135deg, #0e7490 0%, #22d3ee 100%); }
+
+.role-title-wrap { display: flex; flex-direction: column; gap: 2px; }
+
+.role-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.role-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,0.75);
+}
+
+.role-count {
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.2);
+  padding: 3px 12px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.role-count.has-member {
+  background: rgba(52,199,89,0.75);
+  font-weight: 700;
+}
+
+/* ── 成员列表 ─────────────────────────────────────────────────── */
+.member-list { padding: 0; }
+
+.member-item {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid #f2f3f5;
+  gap: 10px;
+  transition: background 0.15s;
+}
+.member-item:last-child { border-bottom: none; }
+
+.member-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3370ff, #5e8dff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.member-info { flex: 1; min-width: 0; }
+.member-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1f2329;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-id {
+  font-size: 11px;
+  color: #bbbfc4;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-remove-member {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #bbbfc4;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.btn-remove-member:active { color: #f54a45; background: #fff0f0; }
+
+/* ── 添加成员行 ───────────────────────────────────────────────── */
+.add-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  cursor: pointer;
+  background: #fafbff;
+  transition: background 0.15s;
+}
+.add-member-row:active { background: #f0f4ff; }
+
+.add-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px dashed #3370ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3370ff;
+  flex-shrink: 0;
+}
+.add-member-label {
+  font-size: 14px;
+  color: #3370ff;
+}
+
+/* ── 空成员提示 ───────────────────────────────────────────────── */
+.empty-role-tip {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #bbbfc4;
+  text-align: center;
+}
+
+/* ── 底部保存按钮 ──────────────────────────────────────────────── */
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px;
+  background: rgba(235,241,253,0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid #dce4f5;
+  z-index: 200;
+}
+
+.btn-save-all {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #3370ff 0%, #5e8dff 100%);
+  color: #fff;
+  border: none;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(51,112,255,0.35);
+  transition: transform 0.1s, opacity 0.15s;
+  margin: 0 auto;
+}
+.btn-save-all:active  { transform: scale(0.98); }
+.btn-save-all.saving  { opacity: 0.65; pointer-events: none; }
+
+/* ── 结果 Toast（页面内浮动条，不依赖飞书 JSAPI） ─────────────── */
+#toast-bar {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: #1f2329;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  white-space: nowrap;
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+#toast-bar.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+#toast-bar.toast-success { background: #1a7f3c; }
+#toast-bar.toast-error   { background: #c0392b; }
+
+.hidden { display: none !important; }

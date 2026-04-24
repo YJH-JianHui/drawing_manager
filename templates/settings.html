@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>系统设置</title>
+  <link rel="stylesheet" href="/public/settings.css" />
+  <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+  <script src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16.js"></script>
+  <script src="/public/feishu-auth.js"></script>
+  <script src="https://unpkg.com/vconsole/dist/vconsole.min.js"></script>
+  <script>var vConsole = new window.VConsole();</script>
+</head>
+<body>
+
+<div class="settings-container">
+
+  <!-- 顶部导航（与 checkout 完全一致） -->
+  <div class="header">
+    <div class="back-btn" onclick="history.back()">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+      </svg>
+      返回
+    </div>
+    <h2>系统设置</h2>
+    <div style="width:60px;"></div>
+  </div>
+
+  <!-- 页面说明 -->
+  <div class="page-desc">
+    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+    配置各角色成员，保存后即时生效。每个角色可添加多人。
+  </div>
+
+  <!-- 加载中骨架屏 -->
+  <div id="skeleton-area">
+    <div class="skeleton-card" style="animation-delay:0s"></div>
+    <div class="skeleton-card" style="animation-delay:0.08s"></div>
+    <div class="skeleton-card" style="animation-delay:0.16s"></div>
+    <div class="skeleton-card" style="animation-delay:0.24s"></div>
+    <div class="skeleton-card" style="animation-delay:0.32s"></div>
+    <div class="skeleton-card" style="animation-delay:0.40s"></div>
+  </div>
+
+  <!-- 角色配置区（JS 渲染） -->
+  <div id="roles-area" class="hidden"></div>
+
+  <!-- 底部保存按钮 -->
+  <div class="bottom-bar hidden" id="bottom-bar">
+    <button class="btn-save-all" id="btn-save-all" onclick="saveAllRoles()">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+        <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>
+      </svg>
+      保存所有设置
+    </button>
+  </div>
+
+</div>
+
+<script src="/public/settings.js"></script>
+</body>
+</html>
