@@ -3,68 +3,81 @@
 import os
 import time
 import hashlib
-import requests
-import re  # 修正：必须导入正则库
+import re
 import pandas as pd
 import sqlite3
 from auth import Auth
 from dotenv import load_dotenv, find_dotenv
 from flask import Flask, request, jsonify, render_template
 
-# 从 .env 文件加载环境变量参数
 load_dotenv(find_dotenv())
 
 app = Flask(__name__, static_url_path="/public", static_folder="./public")
 
-# const
-NONCE_STR = "13oEviLbrTo458A3NjrOwS70oTOXVOAm"
-APP_ID = os.getenv("APP_ID")
-APP_SECRET = os.getenv("APP_SECRET")
+NONCE_STR   = "13oEviLbrTo458A3NjrOwS70oTOXVOAm"
+APP_ID      = os.getenv("APP_ID")
+APP_SECRET  = os.getenv("APP_SECRET")
 FEISHU_HOST = os.getenv("FEISHU_HOST")
 
+# 状态常量
+STATUS_PENDING  = '待借出'
+STATUS_DRAFT    = '草稿'
+STATUS_OUT      = '已借出'
+STATUS_RETURNED = '已归还'
+STATUS_NODRAW   = '无图'
 
-# 初始化数据库
-def init_db():
+
+def get_conn():
     conn = sqlite3.connect('drawing_system.db')
-    cursor = conn.cursor()
-    cursor.execute('''
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_conn()
+    conn.execute('''
         CREATE TABLE IF NOT EXISTS drawing_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
             borrow_order_id TEXT,
-            seq_no TEXT,
-            work_order_id TEXT,
-            chart_no TEXT,
-            purpose TEXT,
-            page_format TEXT,
-            drawing_type TEXT,
-            borrower_name TEXT,
-            borrower_id TEXT,
-            borrow_time TEXT,
-            return_time TEXT,
-            status TEXT DEFAULT '待借出'
+            seq_no          TEXT,
+            work_order_id   TEXT,
+            chart_no        TEXT,
+            purpose         TEXT,
+            page_format     TEXT,
+            drawing_type    TEXT,
+            borrower_name   TEXT,
+            borrower_id     TEXT,
+            borrow_time     TEXT,
+            return_time     TEXT,
+            status          TEXT DEFAULT '待借出'
         )
     ''')
     conn.commit()
     conn.close()
 
 
-init_db()  # 启动时初始化数据库
-
+init_db()
 auth = Auth(FEISHU_HOST, APP_ID, APP_SECRET)
 
 
 @app.errorhandler(Exception)
 def auth_error_handler(ex):
-    # 打印具体的错误日志到控制台，方便调试
     print(f"Error: {ex}")
-    response = jsonify(message=str(ex))
-    response.status_code = 500
-    return response
+    return jsonify(message=str(ex)), 500
 
 
-@app.route("/", methods=["GET"])
-def get_home():
-    return render_template("index.html")
+# ── 页面路由 ──────────────────────────────────────────────────────────────
+@app.route("/",         methods=["GET"])
+def get_home():          return render_template("index.html")
+
+@app.route("/checkout", methods=["GET"])
+def get_checkout_page(): return render_template("checkout.html")
+
+@app.route("/query",    methods=["GET"])
+def get_query_page():    return render_template("query.html")
+
+@app.route("/import",   methods=["GET"])
+def import_page():       return render_template("import.html")
 
 
 @app.route("/get_config_parameters", methods=["GET"])
@@ -73,74 +86,168 @@ def get_config_parameters():
     ticket = auth.get_ticket()
     timestamp = int(time.time()) * 1000
     verify_str = "jsapi_ticket={}&noncestr={}&timestamp={}&url={}".format(
-        ticket, NONCE_STR, timestamp, url
-    )
+        ticket, NONCE_STR, timestamp, url)
     signature = hashlib.sha1(verify_str.encode("utf-8")).hexdigest()
+    return jsonify({"appid": APP_ID, "signature": signature,
+                    "noncestr": NONCE_STR, "timestamp": timestamp})
+
+
+# ── API: 查询单号明细 ──────────────────────────────────────────────────────
+@app.route("/api/order/<borrow_order_id>", methods=["GET"])
+def get_order_detail(borrow_order_id):
+    conn = get_conn()
+    rows = conn.execute(
+        'SELECT * FROM drawing_records WHERE borrow_order_id = ? '
+        'ORDER BY CAST(seq_no AS INTEGER)',
+        (borrow_order_id,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"code": 1, "msg": "借用单不存在，请先导入", "data": []})
+
+    data = [dict(r) for r in rows]
+
+    # 计算该单整体状态供前端判断
+    non_draw = [r for r in data if r['status'] != STATUS_NODRAW]
+    all_out  = bool(non_draw) and all(r['status'] == STATUS_OUT  for r in non_draw)
+    has_draft = any(r['status'] == STATUS_DRAFT for r in data)
+
     return jsonify({
-        "appid": APP_ID,
-        "signature": signature,
-        "noncestr": NONCE_STR,
-        "timestamp": timestamp,
+        "code": 0, "msg": "ok", "data": data,
+        "all_out": all_out, "has_draft": has_draft
     })
 
 
-@app.route("/checkout", methods=["GET"])
-def get_checkout_page():
-    return render_template("checkout.html")
+# ── API: 草稿列表 ──────────────────────────────────────────────────────────
+@app.route("/api/drafts", methods=["GET"])
+def get_drafts():
+    conn = get_conn()
+    rows = conn.execute(
+        '''SELECT borrow_order_id,
+                  MAX(borrow_time) AS saved_at,
+                  COUNT(*)         AS draft_count
+           FROM drawing_records
+           WHERE status = ?
+           GROUP BY borrow_order_id
+           ORDER BY saved_at DESC''',
+        (STATUS_DRAFT,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"code": 0, "data": [dict(r) for r in rows]})
 
 
-@app.route("/query", methods=["GET"])
-def get_query_page():
-    return render_template("query.html")
+# ── API: 保存草稿 ──────────────────────────────────────────────────────────
+# 前端传已扫图号列表；后端把这些行标为草稿+保存时间，未扫的恢复待借出
+@app.route("/api/save_draft", methods=["POST"])
+def save_draft():
+    body            = request.get_json()
+    borrow_order_id = body.get("borrow_order_id")
+    scanned_nos     = body.get("scanned_chart_nos", [])
+
+    if not borrow_order_id:
+        return jsonify({"code": -1, "msg": "缺少借用单号"})
+
+    saved_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+
+    # 先将该单旧草稿行全部重置为待借出
+    conn.execute(
+        "UPDATE drawing_records SET status=?, borrow_time=NULL "
+        "WHERE borrow_order_id=? AND status=?",
+        (STATUS_PENDING, borrow_order_id, STATUS_DRAFT)
+    )
+
+    # 再把本次已扫的图号写为草稿（跳过无图行）
+    if scanned_nos:
+        ph = ','.join('?' * len(scanned_nos))
+        conn.execute(
+            f"UPDATE drawing_records SET status=?, borrow_time=? "
+            f"WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status!=?",
+            [STATUS_DRAFT, saved_at, borrow_order_id] + scanned_nos + [STATUS_NODRAW]
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"code": 0, "msg": "草稿已保存", "saved_at": saved_at})
 
 
-@app.route("/import", methods=["GET"])
-def import_page():
-    return render_template("import.html")
+# ── API: 提交借出 ──────────────────────────────────────────────────────────
+# 仅当前端确认全部非无图行都已扫时才调用
+# 把该单所有非无图行更新为已借出，写借用人和借出时间
+@app.route("/api/submit_order", methods=["POST"])
+def submit_order():
+    body            = request.get_json()
+    borrow_order_id = body.get("borrow_order_id")
+    borrower_name   = body.get("borrower_name", "")
+    borrower_id     = body.get("borrower_id", "")
+
+    if not borrow_order_id or not borrower_name:
+        return jsonify({"code": -1, "msg": "借用单号和借用人不能为空"})
+
+    borrow_time = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+    conn.execute(
+        "UPDATE drawing_records "
+        "SET status=?, borrower_name=?, borrower_id=?, borrow_time=? "
+        "WHERE borrow_order_id=? AND status!=?",
+        (STATUS_OUT, borrower_name, borrower_id, borrow_time,
+         borrow_order_id, STATUS_NODRAW)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"code": 0, "msg": "提交成功", "borrow_time": borrow_time})
 
 
-# 修正后的上传接口
+# ── API: 导入 Excel ────────────────────────────────────────────────────────
 @app.route("/api/upload_excel", methods=["POST"])
 def upload_excel():
     if 'file' not in request.files:
         return jsonify({"code": -1, "msg": "未找到文件"})
 
-    file = request.files['file']
+    file             = request.files['file']
     display_filename = request.form.get('filename') or file.filename
 
-    match = re.search(r'(Y[A-Z0-9_]+)', display_filename)
+    match = re.search(r'导入借用单_(.+?)\.xlsx$', display_filename, re.IGNORECASE)
     if not match:
-        return jsonify({"code": -1, "msg": "文件名不包含单号"})
+        return jsonify({"code": -1, "msg": "文件名格式不正确，应为「导入借用单_单号.xlsx」"})
 
-    borrow_order_id = match.group(1)
+    borrow_order_id = match.group(1).strip()
 
     try:
         df = pd.read_excel(file)
         df = df.fillna("")
 
-        conn = sqlite3.connect('drawing_system.db')
-        cursor = conn.cursor()
+        conn = get_conn()
+        # 已有借出记录的单不允许覆盖导入
+        out_count = conn.execute(
+            "SELECT COUNT(*) FROM drawing_records WHERE borrow_order_id=? AND status=?",
+            (borrow_order_id, STATUS_OUT)
+        ).fetchone()[0]
+        if out_count > 0:
+            conn.close()
+            return jsonify({"code": -1, "msg": f"单号 {borrow_order_id} 已有借出记录，无法重新导入"})
 
-        # 【核心逻辑】：先删除该单号下已存在的所有记录
-        # 这样无论你导入多少次，数据库里永远只有最新的一份，不会重复
-        cursor.execute('DELETE FROM drawing_records WHERE borrow_order_id = ?', (borrow_order_id,))
-        print(f"已清理单号 {borrow_order_id} 的旧记录")
+        conn.execute('DELETE FROM drawing_records WHERE borrow_order_id=?', (borrow_order_id,))
 
         count = 0
         for _, row in df.iterrows():
-            # 这里的字段要和你 Excel 表头完全对应
-            cursor.execute('''
-                INSERT INTO drawing_records 
-                (borrow_order_id, seq_no, work_order_id, chart_no, purpose, page_format, drawing_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+            page_format    = str(row.get('幅面', '')).strip()
+            initial_status = STATUS_NODRAW if page_format == '无图' else STATUS_PENDING
+            conn.execute('''
+                INSERT INTO drawing_records
+                (borrow_order_id, seq_no, work_order_id, chart_no, purpose,
+                 page_format, drawing_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 borrow_order_id,
                 str(row.get('序号', '')),
                 str(row.get('工作令号', '')),
                 str(row.get('图号', '')),
                 str(row.get('用途', '')),
-                str(row.get('幅面', '')),
-                str(row.get('类型', ''))
+                page_format,
+                str(row.get('类型', '')),
+                initial_status
             ))
             count += 1
 
