@@ -532,15 +532,27 @@ function searchManual() {
       return $("#manual-result-list").html('<div class="mr-empty">未找到可供您归还的借用单记录</div>');
     }
 
-    const listHtml = res.data.map(d => `
+    // 渲染带有借用时间和工作令明细的结果卡片
+    const listHtml = res.data.map(d => {
+      // 遍历所有明细，生成蓝色的小标签
+      const detailsHtml = d.items.map(it =>
+        `<span class="mr-tag">${it.work_order_id || '无工作令'} (${it.status})</span>`
+      ).join('');
+
+      return `
       <div class="manual-result-item">
-        <div class="mr-info">
-          <span class="mr-order">单号：${d.borrow_order_id}</span>
-          <span class="mr-desc">匹配包含该图号的明细 <b>${d.match_count}</b> 条</span>
+        <div class="mr-top">
+          <div class="mr-info">
+            <span class="mr-order">单号：${d.borrow_order_id}</span>
+            <span class="mr-time">借出时间：${d.borrow_time || '未知'}</span>
+          </div>
+          <button class="mr-btn" onclick="confirmManualReturn('${d.borrow_order_id}', '${chartNo}', '${workOrder}')">归还</button>
         </div>
-        <button class="mr-btn" onclick="confirmManualReturn('${d.borrow_order_id}', '${chartNo}', '${workOrder}')">归还</button>
+        <div class="mr-details">
+          ${detailsHtml}
+        </div>
       </div>
-    `).join('');
+    `}).join('');
 
     $("#manual-result-list").html(listHtml);
   })
@@ -548,13 +560,16 @@ function searchManual() {
 }
 
 function confirmManualReturn(bNum, chartNo, workOrder) {
-  if (!confirm(`确认在单号【${bNum}】中，将所有图号包含 "${chartNo}" 的图纸归还吗？`)) return;
+  // 文案明确提示：将归还该图号的“所有明细”
+  if (!confirm(`确认在单号【${bNum}】中，将图号【${chartNo}】的所有关联明细一并归还吗？\n\n(该操作将精确修改本单下此图号的全部工作令记录)`)) return;
 
   fetch('/api/return/manual_submit', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      borrow_order_id: bNum, chart_no: chartNo, work_order_id: workOrder,
-      user_name: currentUser.name, user_id: currentUser.id
+      borrow_order_id: bNum,
+      chart_no: chartNo,
+      user_name: currentUser.name,
+      user_id: currentUser.id
     })
   })
   .then(r => r.json())
@@ -563,7 +578,7 @@ function confirmManualReturn(bNum, chartNo, workOrder) {
       showToast("手动归还成功", "success");
       closeManualModal();
 
-      // 如果当前页面正巧打开着这个单子，重新加载刷新它；否则直接加载它方便查看
+      // 重新加载该单据的列表，刷新显示状态
       delete groupedData[bNum];
       loadOrder(bNum);
     } else {

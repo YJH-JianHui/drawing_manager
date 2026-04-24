@@ -51,9 +51,23 @@
 /* 搜索结果列表 */
 #manual-result-list { margin-top: 20px; max-height: 200px; overflow-y: auto; }
 .manual-result-item { background: #f5f6f7; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-.mr-info { display: flex; flex-direction: column; gap: 4px; }
-.mr-order { font-size: 15px; font-weight: 600; color: #1f2329; }
 .mr-desc { font-size: 12px; color: #8f959e; }
-.mr-btn { background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
-.mr-btn:active { transform: scale(0.96); }
 .mr-empty { text-align: center; color: #8f959e; font-size: 13px; padding: 20px 0; }
+
+/* --- 手动还图结果的详情样式 --- */
+.manual-result-item {
+  background: #f5f6f7; padding: 12px; border-radius: 8px; margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 8px; /* 改为垂直排布 */
+}
+.mr-top {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+}
+.mr-info { display: flex; flex-direction: column; gap: 2px; }
+.mr-order { font-size: 15px; font-weight: 600; color: #1f2329; }
+.mr-time { font-size: 12px; color: #8f959e; }
+.mr-btn { background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.mr-btn:active { transform: scale(0.96); }
+
+/* 下方明细标签区 */
+.mr-details { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.mr-tag { font-size: 11px; background: #e8ecf5; color: #3370ff; padding: 3px 6px; border-radius: 4px; }

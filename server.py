@@ -498,7 +498,7 @@ def submit_return():
 
 @app.route("/api/return/search_manual", methods=["POST"])
 def search_manual_return():
-    """模糊搜索可手动归还的借用单"""
+    """手动还图搜索：先用[图号+工作令] 定位借用单，再查出该单据下 [图号] 的所有明细"""
     body = request.get_json()
     chart_no = body.get("chart_no", "").strip()
     work_order_id = body.get("work_order_id", "").strip()
@@ -511,7 +511,6 @@ def search_manual_return():
     roles = [r['role_key'] for r in
              conn.execute("SELECT role_key FROM role_members WHERE open_id=?", (open_id,)).fetchall()]
 
-    # 根据角色决定能看到哪些状态的图纸
     statuses = []
     if 'super_admin' in roles or 'borrower' in roles:
         statuses.extend([STATUS_OUT, STATUS_DRAFT_RET_1])
@@ -522,29 +521,63 @@ def search_manual_return():
         conn.close()
         return jsonify({"code": 0, "data": []})
 
-    ph = ",".join("?" * len(statuses))
-    params = [f"%{chart_no}%"]
-    sql = f"SELECT borrow_order_id, COUNT(*) as match_count FROM drawing_records WHERE chart_no LIKE ? "
+    ph_status = ",".join("?" * len(statuses))
+
+    # 第一步：根据 [图号 + 工作令号(如果有)] 找出精确的借用单号
+    find_orders_sql = f"SELECT DISTINCT borrow_order_id FROM drawing_records WHERE chart_no = ? AND status IN ({ph_status})"
+    params1 = [chart_no] + statuses
 
     if work_order_id:
-        sql += " AND work_order_id LIKE ? "
-        params.append(f"%{work_order_id}%")
+        find_orders_sql += " AND work_order_id = ?"
+        params1.append(work_order_id)
 
-    sql += f" AND status IN ({ph}) GROUP BY borrow_order_id ORDER BY borrow_order_id DESC LIMIT 10"
-    params.extend(statuses)
+    find_orders_sql += " ORDER BY borrow_order_id DESC LIMIT 50"
 
-    rows = conn.execute(sql, params).fetchall()
+    order_rows = conn.execute(find_orders_sql, params1).fetchall()
+
+    if not order_rows:
+        conn.close()
+        return jsonify({"code": 0, "data": []})
+
+    order_ids = [r["borrow_order_id"] for r in order_rows]
+
+    # 第二步：根据找出的借用单号，拉取该 [图号] 的所有明细（抛弃工作令号的过滤）
+    ph_orders = ",".join("?" * len(order_ids))
+    detail_sql = f"""
+        SELECT borrow_order_id, borrow_time, work_order_id, seq_no, status 
+        FROM drawing_records 
+        WHERE chart_no = ? AND status IN ({ph_status}) AND borrow_order_id IN ({ph_orders})
+        ORDER BY borrow_order_id DESC, CAST(seq_no AS INTEGER) ASC
+    """
+    params2 = [chart_no] + statuses + order_ids
+    rows = conn.execute(detail_sql, params2).fetchall()
     conn.close()
-    return jsonify({"code": 0, "data": [dict(r) for r in rows]})
+
+    # 第三步：按借用单号对明细进行分组组装
+    result_dict = {}
+    for r in rows:
+        bid = r["borrow_order_id"]
+        if bid not in result_dict:
+            result_dict[bid] = {
+                "borrow_order_id": bid,
+                "borrow_time": r["borrow_time"],
+                "items": []
+            }
+        result_dict[bid]["items"].append({
+            "seq_no": r["seq_no"],
+            "work_order_id": r["work_order_id"],
+            "status": r["status"]
+        })
+
+    return jsonify({"code": 0, "data": list(result_dict.values())})
 
 
 @app.route("/api/return/manual_submit", methods=["POST"])
 def manual_return_submit():
-    """手动归还提交，只影响指定借用单下的模糊图号"""
+    """手动归还提交：更新指定单号、指定图号下的【所有】明细"""
     body = request.get_json()
     borrow_order_id = body.get("borrow_order_id")
     chart_no = body.get("chart_no").strip()
-    work_order_id = body.get("work_order_id", "").strip()
     user_name = body.get("user_name")
     user_id = body.get("user_id")
 
@@ -555,24 +588,17 @@ def manual_return_submit():
     can_step2 = 'super_admin' in roles or 'drawing_admin' in roles
     now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 优先执行第二步（管理员确认归还）
+    # 提交时，完全忽略工作令号，只要借用单号和图号匹配，全部一并修改状态
     if can_step2:
-        sql2 = "UPDATE drawing_records SET status=?, return_manager_name=?, return_manager_id=?, return_time=? WHERE borrow_order_id=? AND chart_no LIKE ? AND status IN (?,?)"
-        params2 = [STATUS_RETURNED, user_name, user_id, now, borrow_order_id, f"%{chart_no}%", STATUS_PENDING_RET,
+        sql2 = "UPDATE drawing_records SET status=?, return_manager_name=?, return_manager_id=?, return_time=? WHERE borrow_order_id=? AND chart_no=? AND status IN (?,?)"
+        params2 = [STATUS_RETURNED, user_name, user_id, now, borrow_order_id, chart_no, STATUS_PENDING_RET,
                    STATUS_DRAFT_RET_2]
-        if work_order_id:
-            sql2 += " AND work_order_id LIKE ?"
-            params2.append(f"%{work_order_id}%")
         conn.execute(sql2, params2)
 
-    # 其次执行第一步（借图员发起归还）
     if can_step1:
-        sql1 = "UPDATE drawing_records SET status=?, returner_name=?, returner_id=?, return_time=? WHERE borrow_order_id=? AND chart_no LIKE ? AND status IN (?,?)"
-        params1 = [STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id, f"%{chart_no}%", STATUS_OUT,
+        sql1 = "UPDATE drawing_records SET status=?, returner_name=?, returner_id=?, return_time=? WHERE borrow_order_id=? AND chart_no=? AND status IN (?,?)"
+        params1 = [STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id, chart_no, STATUS_OUT,
                    STATUS_DRAFT_RET_1]
-        if work_order_id:
-            sql1 += " AND work_order_id LIKE ?"
-            params1.append(f"%{work_order_id}%")
         conn.execute(sql1, params1)
 
     conn.commit()
