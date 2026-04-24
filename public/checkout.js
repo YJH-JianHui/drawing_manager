@@ -16,33 +16,28 @@ let currentUser = { name: "获取中...", id: "" };
 let groupedData = {};
 
 // ── 初始化 ────────────────────────────────────────────────────────────────
-$(document).ready(apiAuth);
+$(document).ready(() => {
+  // 读缓存用户信息（首页已缓存，这里直接用，不再发起 getUserInfo 握手）
+  const cached = feishuGetUser();
+  if (cached) {
+    currentUser = { name: cached.nickName, id: cached.openId || "" };
+  }
 
-function apiAuth() {
-  if (!window.h5sdk) return;
-  const url = encodeURIComponent(location.href.split("#")[0]);
-  fetch(`/get_config_parameters?url=${url}`)
-    .then(r => r.json())
-    .then(res => {
-      window.h5sdk.config({
-        appId: res.appid, timestamp: res.timestamp,
-        nonceStr: res.noncestr, signature: res.signature,
-        jsApiList: ['scanCode', 'chooseContact', 'getUserInfo'],
-        onSuccess: () => {
-          window.h5sdk.ready(() => {
-            tt.getUserInfo({
-              success(res) {
-                currentUser = {
-                  name: res.userInfo.nickName,
-                  id:   res.userInfo.openId || ""
-                };
-              }
-            });
-          });
-        }
-      });
-    });
-}
+  feishuAuth({
+    jsApiList: ['scanCode', 'chooseContact', 'getUserInfo'],
+    onReady() {
+      // 如果缓存没有（首次 or 过期），降级调一次 getUserInfo
+      if (!feishuGetUser()) {
+        tt.getUserInfo({
+          success(res) {
+            feishuSaveUser(res.userInfo);
+            currentUser = { name: res.userInfo.nickName, id: res.userInfo.openId || "" };
+          }
+        });
+      }
+    }
+  });
+});
 
 // ── 扫码入口 ──────────────────────────────────────────────────────────────
 function startScan() {
