@@ -102,32 +102,26 @@ function loadOrder(borrowOrderId, callback) {
       const step1Items = res.data.filter(it => it.status === '已借出' || it.status === '待还草稿');
       const step2Items = res.data.filter(it => it.status === '待归还' || it.status === '已还草稿');
 
-      let step = 0;
+      let step = 0; // 默认0表示仅查看(只读)
 
-      // 智能判定当前可执行的步骤
-      const canDoStep1 = isBorrower() && step1Items.length > 0;
-      const canDoStep2 = isAdmin() && step2Items.length > 0;
-
-      if (canDoStep1) {
+      if (isBorrower() && step1Items.length > 0) {
         step = 1;
-      } else if (canDoStep2) {
+      } else if (isAdmin() && step2Items.length > 0) {
         step = 2;
       } else {
+        // [修改 1] 无权限或无数据时，不阻断，只给予提示并将 step 置为 0 (只读)
         if (step1Items.length === 0 && step2Items.length === 0) {
-          return showAlert(`单号【${borrowOrderId}】已全部归还完成，无法再次操作。`, startScan);
+          showToast(`单号【${borrowOrderId}】无可归还明细，仅供查看`);
         } else if (step1Items.length > 0 && !isBorrower()) {
-          return showAlert(`单号【${borrowOrderId}】有图纸待发起归还，需【借图员】权限。`, startScan);
+          showToast(`有待借图员发起的图纸，您无权限，仅供查看`);
         } else if (step2Items.length > 0 && !isAdmin()) {
-          return showAlert(`单号【${borrowOrderId}】有图纸已发起归还，正等待【图纸管理员】确认。`, startScan);
+          showToast(`有待管理员确认的图纸，您无权限，仅供查看`);
         }
       }
 
-      // [核心修改]：保留整单所有明细，添加 _isActionable (当前阶段可操作) 标记
       const processedItems = res.data.map(it => {
         let scanned = false;
         let isActionable = false;
-
-        // 如果图纸属于当前步骤的管辖范围，标记为可操作
         if (step === 1 && (it.status === '待还草稿' || it.status === '已借出')) {
           isActionable = true;
           if (it.status === '待还草稿') scanned = true;
@@ -135,7 +129,6 @@ function loadOrder(borrowOrderId, callback) {
           isActionable = true;
           if (it.status === '已还草稿') scanned = true;
         }
-
         return { ...it, _scanned: scanned, _isActionable: isActionable };
       });
 
@@ -148,37 +141,29 @@ function loadOrder(borrowOrderId, callback) {
       renderList();
 
       if (callback) callback();
-      else showToast(`已加载单号 ${borrowOrderId}`, "success");
     })
     .catch(() => showAlert("网络异常，加载失败"));
 }
 
 function hitChart(borrowOrderId, chartNo, rawOrderNum) {
   const group = groupedData[borrowOrderId];
+
+  // [修改 2] 拦截只读模式的扫码
+  if (group.step === 0) {
+    return showAlert(`当前单据处于仅查看模式，无法操作图纸。`, startScan);
+  }
+
   const byChart = group.items.filter(it => it.chart_no === chartNo);
+  if (byChart.length === 0) return showAlert(`图号【${chartNo}】不在该借用单中。`, startScan);
 
-  if (byChart.length === 0) {
-    return showAlert(`图号【${chartNo}】不在该借用单中。`, startScan);
-  }
-
-  // [核心修改]：只允许操作标记为 _isActionable 的图纸
   const actionable = byChart.filter(it => it._isActionable);
-
-  if (actionable.length === 0) {
-    return showAlert(`图号【${chartNo}】当前状态不支持在该阶段归还。`, startScan);
-  }
-
-  if (actionable.every(it => it._scanned)) {
-    return showAlert(`该图纸已扫码，无需重复。`, startScan);
-  }
+  if (actionable.length === 0) return showAlert(`图号【${chartNo}】当前状态不支持在该阶段归还。`, startScan);
+  if (actionable.every(it => it._scanned)) return showAlert(`该图纸已扫码，无需重复。`, startScan);
 
   actionable.forEach(it => { it._scanned = true; });
   renderList();
 
-  // 提示语：检查当前步骤下可操作的图纸是否全部扫完
-  const allActionable = group.items.filter(it => it._isActionable);
-  const allDone = allActionable.every(it => it._scanned);
-
+  const allDone = group.items.filter(it => it._isActionable).every(it => it._scanned);
   if (allDone) {
     showToast("✅ 可归还的图纸已全部扫码完毕！", "success");
   } else {
@@ -187,11 +172,9 @@ function hitChart(borrowOrderId, chartNo, rawOrderNum) {
   }
 }
 
-// ── 4. 渲染界面 ──────────────────────────────────────────────
 function renderList() {
   const $list = $("#record-list").empty();
   const keys = Object.keys(groupedData);
-
   const totalItems = keys.reduce((acc, k) => acc + groupedData[k].items.length, 0);
   $("#record-count").text(totalItems);
 
@@ -201,8 +184,6 @@ function renderList() {
 
   keys.forEach(bNum => {
     const group = groupedData[bNum];
-
-    // [核心修改]：右上角进度条的基数，应该是【当前步骤可操作】的图纸数量，而不是整单数量
     const actionableItems = group.items.filter(it => it._isActionable);
     const totalActionable = actionableItems.length;
     const scanned = actionableItems.filter(it => it._scanned).length;
@@ -210,21 +191,20 @@ function renderList() {
     const canSubmit = scanned > 0;
     const allDoneForProgress = totalActionable > 0 && scanned === totalActionable;
 
-    const stepName = group.step === 1 ? "第1步: 借图员发起归还" : "第2步: 管理员确认归还";
-    const opRole   = group.step === 1 ? "借图员 (发起归还)" : "图纸管理员 (确认归还)";
-    const opClass  = group.step === 1 ? "role-borrower" : "role-admin";
+    // [修改 3] 处理只读情况的 UI 文本
+    const stepName = group.step === 1 ? "第1步: 借图员发起" :
+                     group.step === 2 ? "第2步: 管理员确认" : "仅供查看 (无待办/无权限)";
+    const opRole   = group.step === 1 ? "借图员" :
+                     group.step === 2 ? "管理员" : "访客";
+    const opClass  = group.step === 1 ? "role-borrower" :
+                     group.step === 2 ? "role-admin" : "";
 
     const draftTag = group.savedAt ? `<span class="draft-tag">${stepName} | 草稿 ${group.savedAt}</span>` : `<span class="draft-tag">${stepName}</span>`;
 
     const rowsHtml = group.items.map(it => {
-      let displayStatus = it.status;
-      if (it._scanned) {
-        displayStatus = '已扫码';
-      }
+      let displayStatus = it._scanned ? '已扫码' : it.status;
       const { cls, label } = statusStyle(displayStatus);
-
-      // [核心体验优化]：将当前步骤【不可操作】的图纸(如已经归还的、还没借出的)变为半透明，以示区别
-      const rowStyle = it._isActionable ? '' : 'opacity: 0.55; background: #fafbfc;';
+      const rowStyle = (it._isActionable || group.step === 0) ? '' : 'opacity: 0.55; background: #fafbfc;';
 
       return `
         <tr class="item-row ${it._scanned ? 'row-scanned' : ''}" style="${rowStyle}">
@@ -241,6 +221,13 @@ function renderList() {
         </tr>`;
     }).join('');
 
+    // [修改 4] 如果是 step=0 只读模式，隐藏底部操作按钮区
+    const actionsHtml = group.step === 0 ? '' : `
+      <div class="group-actions">
+        <button class="btn-save-draft" onclick="saveReturnDraft('${bNum}')">💾 保存草稿</button>
+        <button class="btn-submit-order ${canSubmit ? '' : 'btn-disabled'}" onclick="submitReturn('${bNum}')" ${canSubmit ? '' : 'disabled'}>✅ 提交归还</button>
+      </div>`;
+
     $list.append(`
       <div class="group-card">
         <div class="group-header">
@@ -248,47 +235,27 @@ function renderList() {
             <div class="group-title">单号：${bNum}</div>
             ${draftTag}
           </div>
-          <div class="group-progress ${allDoneForProgress ? 'progress-done' : ''}" title="当前步骤归还进度">
-            ${scanned} / ${totalActionable} ${allDoneForProgress ? ' ✓' : ''}
+          <div class="group-progress ${allDoneForProgress ? 'progress-done' : ''}">
+            ${group.step !== 0 ? `${scanned} / ${totalActionable}` : '只读'}
           </div>
         </div>
-        
         <div class="manager-row">
           <span class="manager-label">操作人</span>
           <span class="manager-value ${opClass}">${currentUser.name} (${opRole})</span>
         </div>
-        
         <div class="borrower-row">
           <div class="borrower-row-left">
             <span class="borrower-row-label">原借用人</span>
             <span class="borrower-value">${group.borrower_name}</span>
           </div>
         </div>
-
         <table class="item-table">
           <thead>
-            <tr>
-              <th class="th-seq">序号</th>
-              <th class="th-chart">图号 / 工作令</th>
-              <th class="th-type">类型</th>
-              <th class="th-purpose">用途</th>
-              <th class="th-status">状态</th>
-            </tr>
+            <tr><th class="th-seq">序号</th><th class="th-chart">图号 / 工作令</th><th class="th-type">类型</th><th class="th-purpose">用途</th><th class="th-status">状态</th></tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
         </table>
-
-        <div class="group-actions">
-          <button class="btn-save-draft" onclick="saveReturnDraft('${bNum}')">
-            💾 保存草稿
-          </button>
-          
-          <button class="btn-submit-order ${canSubmit ? '' : 'btn-disabled'}" 
-                  onclick="submitReturn('${bNum}')" 
-                  ${canSubmit ? '' : 'disabled'}>
-            ✅ 提交归还
-          </button>
-        </div>
+        ${actionsHtml}
       </div>`);
   });
 }
@@ -531,4 +498,76 @@ function showAlert(msg, afterClose) {
     alert(msg);
     if (typeof afterClose === 'function') afterClose();
   }
+}
+
+// ── 8. 手动还图相关逻辑 ──────────────
+function openManualModal() {
+  $("#manual-chart-no").val('');
+  $("#manual-work-order").val('');
+  $("#manual-result-list").empty();
+  $("#manual-modal").removeClass("hidden");
+}
+
+function closeManualModal() {
+  $("#manual-modal").addClass("hidden");
+}
+
+function searchManual() {
+  const chartNo = $("#manual-chart-no").val().trim();
+  const workOrder = $("#manual-work-order").val().trim();
+
+  if (!chartNo) {
+    return showToast("请输入图号", "error");
+  }
+
+  $("#manual-result-list").html('<div class="mr-empty">搜索中...</div>');
+
+  fetch('/api/return/search_manual', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chart_no: chartNo, work_order_id: workOrder, open_id: currentUser.id })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.code !== 0 || res.data.length === 0) {
+      return $("#manual-result-list").html('<div class="mr-empty">未找到可供您归还的借用单记录</div>');
+    }
+
+    const listHtml = res.data.map(d => `
+      <div class="manual-result-item">
+        <div class="mr-info">
+          <span class="mr-order">单号：${d.borrow_order_id}</span>
+          <span class="mr-desc">匹配包含该图号的明细 <b>${d.match_count}</b> 条</span>
+        </div>
+        <button class="mr-btn" onclick="confirmManualReturn('${d.borrow_order_id}', '${chartNo}', '${workOrder}')">归还</button>
+      </div>
+    `).join('');
+
+    $("#manual-result-list").html(listHtml);
+  })
+  .catch(() => $("#manual-result-list").html('<div class="mr-empty">网络异常，搜索失败</div>'));
+}
+
+function confirmManualReturn(bNum, chartNo, workOrder) {
+  if (!confirm(`确认在单号【${bNum}】中，将所有图号包含 "${chartNo}" 的图纸归还吗？`)) return;
+
+  fetch('/api/return/manual_submit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      borrow_order_id: bNum, chart_no: chartNo, work_order_id: workOrder,
+      user_name: currentUser.name, user_id: currentUser.id
+    })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.code === 0) {
+      showToast("手动归还成功", "success");
+      closeManualModal();
+
+      // 如果当前页面正巧打开着这个单子，重新加载刷新它；否则直接加载它方便查看
+      delete groupedData[bNum];
+      loadOrder(bNum);
+    } else {
+      showAlert(res.msg);
+    }
+  });
 }

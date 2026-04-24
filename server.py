@@ -495,5 +495,89 @@ def submit_return():
     conn.close()
     return jsonify({"code": 0, "msg": "提交成功"})
 
+
+@app.route("/api/return/search_manual", methods=["POST"])
+def search_manual_return():
+    """模糊搜索可手动归还的借用单"""
+    body = request.get_json()
+    chart_no = body.get("chart_no", "").strip()
+    work_order_id = body.get("work_order_id", "").strip()
+    open_id = body.get("open_id")
+
+    if not chart_no:
+        return jsonify({"code": -1, "msg": "图号为必填项"})
+
+    conn = get_conn()
+    roles = [r['role_key'] for r in
+             conn.execute("SELECT role_key FROM role_members WHERE open_id=?", (open_id,)).fetchall()]
+
+    # 根据角色决定能看到哪些状态的图纸
+    statuses = []
+    if 'super_admin' in roles or 'borrower' in roles:
+        statuses.extend([STATUS_OUT, STATUS_DRAFT_RET_1])
+    if 'super_admin' in roles or 'drawing_admin' in roles:
+        statuses.extend([STATUS_PENDING_RET, STATUS_DRAFT_RET_2])
+
+    if not statuses:
+        conn.close()
+        return jsonify({"code": 0, "data": []})
+
+    ph = ",".join("?" * len(statuses))
+    params = [f"%{chart_no}%"]
+    sql = f"SELECT borrow_order_id, COUNT(*) as match_count FROM drawing_records WHERE chart_no LIKE ? "
+
+    if work_order_id:
+        sql += " AND work_order_id LIKE ? "
+        params.append(f"%{work_order_id}%")
+
+    sql += f" AND status IN ({ph}) GROUP BY borrow_order_id ORDER BY borrow_order_id DESC LIMIT 10"
+    params.extend(statuses)
+
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return jsonify({"code": 0, "data": [dict(r) for r in rows]})
+
+
+@app.route("/api/return/manual_submit", methods=["POST"])
+def manual_return_submit():
+    """手动归还提交，只影响指定借用单下的模糊图号"""
+    body = request.get_json()
+    borrow_order_id = body.get("borrow_order_id")
+    chart_no = body.get("chart_no").strip()
+    work_order_id = body.get("work_order_id", "").strip()
+    user_name = body.get("user_name")
+    user_id = body.get("user_id")
+
+    conn = get_conn()
+    roles = [r['role_key'] for r in
+             conn.execute("SELECT role_key FROM role_members WHERE open_id=?", (user_id,)).fetchall()]
+    can_step1 = 'super_admin' in roles or 'borrower' in roles
+    can_step2 = 'super_admin' in roles or 'drawing_admin' in roles
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 优先执行第二步（管理员确认归还）
+    if can_step2:
+        sql2 = "UPDATE drawing_records SET status=?, return_manager_name=?, return_manager_id=?, return_time=? WHERE borrow_order_id=? AND chart_no LIKE ? AND status IN (?,?)"
+        params2 = [STATUS_RETURNED, user_name, user_id, now, borrow_order_id, f"%{chart_no}%", STATUS_PENDING_RET,
+                   STATUS_DRAFT_RET_2]
+        if work_order_id:
+            sql2 += " AND work_order_id LIKE ?"
+            params2.append(f"%{work_order_id}%")
+        conn.execute(sql2, params2)
+
+    # 其次执行第一步（借图员发起归还）
+    if can_step1:
+        sql1 = "UPDATE drawing_records SET status=?, returner_name=?, returner_id=?, return_time=? WHERE borrow_order_id=? AND chart_no LIKE ? AND status IN (?,?)"
+        params1 = [STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id, f"%{chart_no}%", STATUS_OUT,
+                   STATUS_DRAFT_RET_1]
+        if work_order_id:
+            sql1 += " AND work_order_id LIKE ?"
+            params1.append(f"%{work_order_id}%")
+        conn.execute(sql1, params1)
+
+    conn.commit()
+    conn.close()
+    return jsonify({"code": 0, "msg": "手动归还成功"})
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000, debug=True, use_reloader=False)
