@@ -232,6 +232,7 @@ body {
 .badge-out       { background: #fff3e0; color: #ef6c00; border: 1px solid #ffe0b2; }
 .badge-returned  { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
 .badge-nodrawing { background: #f3f3f3; color: #9e9e9e; border: 1px solid #e0e0e0; text-decoration: line-through; }
+.badge-pending-ret { background: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb; }
 
 /* ── 单据操作按钮区 ───────────────────────────────────── */
 .group-actions {

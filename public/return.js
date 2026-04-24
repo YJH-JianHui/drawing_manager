@@ -99,39 +99,40 @@ function loadOrder(borrowOrderId, callback) {
     .then(res => {
       if (res.code !== 0) return showAlert(res.msg, startScan);
 
-      // 分析步骤归属：
-      // 第1步(借图员)：操作状态为 [已借出] 和 [待还草稿]
       const step1Items = res.data.filter(it => it.status === '已借出' || it.status === '待还草稿');
-      // 第2步(管理员)：操作状态为 [待归还] 和[已还草稿]
       const step2Items = res.data.filter(it => it.status === '待归还' || it.status === '已还草稿');
 
       let step = 0;
       let actionableItems =[];
 
-      if (step1Items.length > 0) {
-        if (!isBorrower()) return showAlert(`单据【${borrowOrderId}】需由【借图员】发起归还，您无权操作！`, startScan);
+      // 智能判定：根据图纸情况和用户角色，分派当前可操作的图纸
+      const canDoStep1 = isBorrower() && step1Items.length > 0;
+      const canDoStep2 = isAdmin() && step2Items.length > 0;
+
+      if (canDoStep1) {
         step = 1;
         actionableItems = step1Items;
-      } else if (step2Items.length > 0) {
-        if (!isAdmin()) return showAlert(`单据【${borrowOrderId}】处于待管理员确认阶段，您无权操作！`, startScan);
+      } else if (canDoStep2) {
         step = 2;
         actionableItems = step2Items;
       } else {
-        return showAlert(`单号【${borrowOrderId}】当前没有可供归还操作的图纸。`, startScan);
+        // 给出最精确的拦截提示
+        if (step1Items.length === 0 && step2Items.length === 0) {
+          return showAlert(`单号【${borrowOrderId}】已全部归还完成，无法再次操作。`, startScan);
+        } else if (step1Items.length > 0 && !isBorrower()) {
+          return showAlert(`单号【${borrowOrderId}】有图纸待发起归还，需【借图员】权限。`, startScan);
+        } else if (step2Items.length > 0 && !isAdmin()) {
+          return showAlert(`单号【${borrowOrderId}】有图纸已发起归还，正等待【图纸管理员】确认。`, startScan);
+        }
       }
 
-      // 初始化已扫状态
-      const processedItems = actionableItems.map(it => {
-        let scanned = false;
-        if (step === 1 && it.status === '待还草稿') scanned = true;
-        if (step === 2 && it.status === '已还草稿') scanned = true;
-        return { ...it, _scanned: scanned };
-      });
+      const processedItems = actionableItems.map(it => ({
+        ...it,
+        // 如果是从草稿读取的，默认勾选为已扫码
+        _scanned: (step === 1 && it.status === '待还草稿') || (step === 2 && it.status === '已还草稿')
+      }));
 
-      // 提取借用人(从已有记录中提取第一个非空的 borrower_name)
       const bName = res.data.find(it => it.borrower_name)?.borrower_name || "未知";
-
-      // 提取草稿时间
       let savedAt = null;
       const draftIt = actionableItems.find(it => (step === 1 && it.status === '待还草稿') || (step === 2 && it.status === '已还草稿'));
       if (draftIt) savedAt = draftIt.return_time;
@@ -185,31 +186,36 @@ function renderList() {
     const group = groupedData[bNum];
     const total = group.items.length;
     const scanned = group.items.filter(it => it._scanned).length;
-    const allDone = total > 0 && scanned === total;
 
-    // 动态判断当前操作步骤的标签文字
+    const canSubmit = scanned > 0;
+    const allDoneForProgress = total > 0 && scanned === total;
+
     const stepName = group.step === 1 ? "第1步: 借图员发起归还" : "第2步: 管理员确认归还";
     const opRole   = group.step === 1 ? "借图员 (发起归还)" : "图纸管理员 (确认归还)";
     const opClass  = group.step === 1 ? "role-borrower" : "role-admin";
 
     const draftTag = group.savedAt ? `<span class="draft-tag">${stepName} | 草稿 ${group.savedAt}</span>` : `<span class="draft-tag">${stepName}</span>`;
 
+    // [核心修改]：补充了类型和用途的表格单元格
     const rowsHtml = group.items.map(it => {
-      // 临时计算前端显示状态
       let displayStatus = it.status;
       if (it._scanned) {
-        displayStatus = (group.step === 1) ? '待还草稿' : '已还草稿';
+        displayStatus = '已扫码';
       }
       const { cls, label } = statusStyle(displayStatus);
 
       return `
         <tr class="item-row ${it._scanned ? 'row-scanned' : ''}">
-          <td class="item-cell cell-seq">${it.seq_no}</td>
+          <td class="item-cell cell-seq">${it.seq_no || ''}</td>
           <td class="item-cell cell-chart">
             <div class="chart-no">${it.chart_no}</div>
             <div class="work-order">工作令：${it.work_order_id || '—'}</div>
           </td>
-          <td class="item-cell cell-status"><span class="status-badge ${cls}">${label}</span></td>
+          <td class="item-cell cell-type">${it.drawing_type || '—'}</td>
+          <td class="item-cell cell-purpose">${it.purpose || '—'}</td>
+          <td class="item-cell cell-status">
+            <span class="status-badge ${cls}">${label}</span>
+          </td>
         </tr>`;
     }).join('');
 
@@ -220,8 +226,8 @@ function renderList() {
             <div class="group-title">单号：${bNum}</div>
             ${draftTag}
           </div>
-          <div class="group-progress ${allDone ? 'progress-done' : ''}">
-            ${scanned} / ${total} ${allDone ? ' ✓' : ''}
+          <div class="group-progress ${allDoneForProgress ? 'progress-done' : ''}">
+            ${scanned} / ${total} ${allDoneForProgress ? ' ✓' : ''}
           </div>
         </div>
         
@@ -239,10 +245,13 @@ function renderList() {
 
         <table class="item-table">
           <thead>
+            <!-- [核心修改]：补充了类型和用途的表头 -->
             <tr>
               <th class="th-seq">序号</th>
-              <th>图号 / 工作令</th>
-              <th class="th-status" style="width:75px; text-align:center;">状态</th>
+              <th class="th-chart">图号 / 工作令</th>
+              <th class="th-type">类型</th>
+              <th class="th-purpose">用途</th>
+              <th class="th-status">状态</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -252,7 +261,10 @@ function renderList() {
           <button class="btn-save-draft" onclick="saveReturnDraft('${bNum}')">
             💾 保存草稿
           </button>
-          <button class="btn-submit-order ${allDone ? '' : 'btn-disabled'}" onclick="submitReturn('${bNum}')" ${allDone ? '' : 'disabled'}>
+          
+          <button class="btn-submit-order ${canSubmit ? '' : 'btn-disabled'}" 
+                  onclick="submitReturn('${bNum}')" 
+                  ${canSubmit ? '' : 'disabled'}>
             ✅ 提交归还
           </button>
         </div>
@@ -298,17 +310,22 @@ function saveReturnDraft(bNum) {
 function submitReturn(bNum) {
   const group = groupedData[bNum];
 
-  if (group.items.filter(it => !it._scanned).length > 0) {
-    return showAlert("还有未扫码的图纸，全部扫完后才能提交！");
+  // 提取用户实际扫码的图纸
+  const scannedNos = group.items.filter(it => it._scanned).map(it => it.chart_no);
+
+  if (scannedNos.length === 0) {
+    return showAlert("请至少扫码一张图纸后再提交！");
   }
 
-  if (!confirm(`确认提交单据【${bNum}】的全部归还项吗？`)) return;
+  if (!confirm(`确认提交单据【${bNum}】中已扫码的 ${scannedNos.length} 项图纸吗？\n(未扫码的图纸可下次再还)`)) return;
 
+  // 将实际扫码的图纸传给后端
   fetch('/api/return/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       borrow_order_id: bNum,
+      scanned_chart_nos: scannedNos, // <-- 仅提交已扫部分
       step: group.step,
       user_name: currentUser.name,
       user_id: currentUser.id
@@ -465,12 +482,9 @@ function showWheelPicker(drafts) {
 
 function statusStyle(status) {
   switch (status) {
-    case '待借出':    return { cls: 'badge-pending',     label: '待借出' };
-    case '待借草稿':  return { cls: 'badge-draft',       label: '待借草稿' };
+    case '已扫码':    return { cls: 'badge-scanned',     label: '已扫码' };
     case '已借出':    return { cls: 'badge-out',         label: '已借出' };
-    case '待还草稿':  return { cls: 'badge-draft-ret1',  label: '待还草稿' };
     case '待归还':    return { cls: 'badge-pending-ret', label: '待归还' };
-    case '已还草稿':  return { cls: 'badge-draft-ret2',  label: '已还草稿' };
     case '已归还':    return { cls: 'badge-returned',    label: '已归还' };
     default:          return { cls: 'badge-pending',     label: status };
   }

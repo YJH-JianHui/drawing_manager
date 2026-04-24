@@ -460,29 +460,36 @@ def save_return_draft():
 
 @app.route("/api/return/submit", methods=["POST"])
 def submit_return():
-    """提交归还（双步骤合并接口）"""
+    """提交归还（双步骤合并接口，支持单张/部分图纸归还）"""
     body = request.get_json()
     borrow_order_id = body.get("borrow_order_id")
     step = body.get("step")
     user_name = body.get("user_name")
     user_id = body.get("user_id")
+    # 获取前端实际扫码的图纸数组
+    scanned_nos = body.get("scanned_chart_nos", [])
+
+    if not scanned_nos:
+        return jsonify({"code": -1, "msg": "未选中任何图纸，无法提交"})
 
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
+    ph = ','.join('?' * len(scanned_nos))
 
     if step == 1:
-        # 第一步提交：待归还，写入归还发起人(借图员)
-        conn.execute('''UPDATE drawing_records 
+        # 第一步提交：只把被扫码的图纸变更为 "待归还"
+        conn.execute(f'''UPDATE drawing_records 
                         SET status=?, returner_name=?, returner_id=?, return_time=? 
-                        WHERE borrow_order_id=? AND status IN (?, ?)''',
-                     (STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id, STATUS_OUT, STATUS_DRAFT_RET_1))
+                        WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status IN (?, ?)''',
+                     [STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id] + scanned_nos + [STATUS_OUT,
+                                                                                                     STATUS_DRAFT_RET_1])
     elif step == 2:
-        # 第二步提交：已归还，写入确认归还人(管理员)
-        conn.execute('''UPDATE drawing_records 
+        # 第二步提交：只把被扫码的图纸变更为 "已归还"
+        conn.execute(f'''UPDATE drawing_records 
                         SET status=?, return_manager_name=?, return_manager_id=?, return_time=? 
-                        WHERE borrow_order_id=? AND status IN (?, ?)''',
-                     (
-                     STATUS_RETURNED, user_name, user_id, now, borrow_order_id, STATUS_PENDING_RET, STATUS_DRAFT_RET_2))
+                        WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status IN (?, ?)''',
+                     [STATUS_RETURNED, user_name, user_id, now, borrow_order_id] + scanned_nos + [STATUS_PENDING_RET,
+                                                                                                  STATUS_DRAFT_RET_2])
 
     conn.commit()
     conn.close()

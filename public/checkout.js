@@ -78,12 +78,10 @@ function processScanData(resultStr) {
         return;
       }
 
-      if (res.all_out) {
-        const outItem = res.data.find(it => it.status === '已借出');
-        const info = outItem
-          ? `该单已于 ${outItem.borrow_time} 借给【${outItem.borrower_name}】`
-          : "该单已全部借出";
-        showAlert(`借用单【${borrowOrderId}】\n${info}`, () => startScan());
+      // 【核心修改】：拦截非待出借状态的单子
+      const actionableItems = res.data.filter(it => it.status === '待借出' || it.status === '待借草稿');
+      if (actionableItems.length === 0) {
+        showAlert(`借用单【${borrowOrderId}】中没有待出借的图纸（可能已全部借出或归还）。`, () => startScan());
         return;
       }
 
@@ -116,7 +114,6 @@ function parseOrderNums(raw) {
 // ── 命中某张图纸 ──────────────────────────────────────────────────────────
 function hitChart(borrowOrderId, chartNo, orderNums) {
   let group = groupedData[borrowOrderId];
-
   const byChart = group.items.filter(it => it.chart_no === chartNo);
 
   if (byChart.length === 0) {
@@ -129,7 +126,10 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
     return;
   }
 
-  const actionable = byChart.filter(it => it.status !== '无图' && matchOrderNum(it.work_order_id, orderNums));
+  // 【核心修改】：只允许操作 '待借出' 或 '待借草稿' 状态的图纸
+  const actionable = byChart.filter(it =>
+    (it.status === '待借出' || it.status === '待借草稿') && matchOrderNum(it.work_order_id, orderNums)
+  );
 
   if (actionable.length === 0) {
     const allOrders = byChart
@@ -137,7 +137,7 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
       .map(it => it.work_order_id || '（无工作令）')
       .join('、');
     showAlert(
-      `图号【${chartNo}】在本单中有记录，但工作令号不匹配。\n本单工作令：${allOrders}`,
+      `图号【${chartNo}】不可借出（可能已借出或工作令不匹配）。\n本单工作令：${allOrders}`,
       () => startScan()
     );
     return;
@@ -164,14 +164,15 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
     toastMsg = `扫码成功：${chartNo}`;
   }
 
-  group           = groupedData[borrowOrderId];
-  const scannable = group.items.filter(it => it.status !== '无图');
+  group = groupedData[borrowOrderId];
+  // 【核心修改】：计算是否全部扫完时，只校验当前属于可借出范围的图纸
+  const scannable = group.items.filter(it => it.status === '待借出' || it.status === '待借草稿');
   const allDone   = scannable.length > 0 && scannable.every(it => it._scanned);
 
   if (allDone) {
     showToast(toastMsg, "success");
     setTimeout(() => {
-      showAlert(`借用单【${borrowOrderId}】全部图纸已扫完！\n请确认借用人后点击【提交借出】。`);
+      showAlert(`借用单【${borrowOrderId}】全部待出借图纸已扫完！\n请确认借用人后点击【提交借出】。`);
     }, 800);
   } else {
     showToast(toastMsg, "success");
@@ -330,23 +331,25 @@ function loadOrder(borrowOrderId) {
     .then(r => r.json())
     .then(res => {
       if (res.code !== 0) { showAlert(res.msg); return; }
-      if (res.all_out) {
-        const outItem = res.data.find(it => it.status === '已借出');
-        const info = outItem
-          ? `该单已于 ${outItem.borrow_time} 借给【${outItem.borrower_name}】`
-          : "该单已全部借出";
-        showAlert(`借用单【${borrowOrderId}】\n${info}`);
+
+      // 【核心修改】：拦截判断是否有待出借的图纸
+      const actionableItems = res.data.filter(it => it.status === '待借出' || it.status === '待借草稿');
+      if (actionableItems.length === 0) {
+        showAlert(`借用单【${borrowOrderId}】中没有待出借的图纸（可能已全部借出或归还）。`);
         return;
       }
+
       groupedData[borrowOrderId] = {
         borrower: null,
         savedAt:  null,
         items: res.data.map(it => ({ ...it, _scanned: it.status === '待借草稿' }))
       };
+
       if (res.has_draft) {
         const draftItem = res.data.find(it => it.status === '待借草稿');
         if (draftItem) groupedData[borrowOrderId].savedAt = draftItem.borrow_time;
       }
+
       renderList();
       showToast(`已加载单号 ${borrowOrderId}`, "success");
     })
@@ -402,19 +405,22 @@ function submitOrder(borrowOrderId) {
     return;
   }
 
-  const unscanned = group.items.filter(it => it.status !== '无图' && !it._scanned);
+  // 【核心修改】：提交校验时，只检查 "待借出" 或 "待借草稿" 且尚未被扫码的图纸
+  const unscanned = group.items.filter(it =>
+    (it.status === '待借出' || it.status === '待借草稿') && !it._scanned
+  );
+
   if (unscanned.length > 0) {
     const detail = unscanned.slice(0, 3).map(it =>
       `${it.chart_no}${it.work_order_id ? ' / ' + it.work_order_id : ''}`
     ).join('\n');
     const more = unscanned.length > 3 ? `\n…等共 ${unscanned.length} 行` : `（共 ${unscanned.length} 行）`;
-    showAlert(`还有未扫码的图纸，全部扫完后才能提交：\n${detail}${more}`);
+    showAlert(`还有待出借的图纸未扫码，全部扫完后才能提交：\n${detail}${more}`);
     return;
   }
 
   if (!confirm(`确认将借用单【${borrowOrderId}】的全部图纸借给【${group.borrower.name}】吗？`)) return;
 
-  // ── 出借管理人 = 当前登录用户 ────────────────────────────────────────
   const lendManagerName = currentUser.name || "";
   const lendManagerId   = currentUser.id   || "";
 
@@ -425,8 +431,8 @@ function submitOrder(borrowOrderId) {
       borrow_order_id:   borrowOrderId,
       borrower_name:     group.borrower.name,
       borrower_id:       group.borrower.id,
-      lend_manager_name: lendManagerName,   // ← 新增
-      lend_manager_id:   lendManagerId      // ← 新增
+      lend_manager_name: lendManagerName,
+      lend_manager_id:   lendManagerId
     })
   })
   .then(r => r.json())
