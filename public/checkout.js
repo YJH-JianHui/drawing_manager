@@ -1,9 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-//  图纸借出页面逻辑
-//  状态机（内存）：待借出 → 已扫(scanned) → 提交后写库为已借出
-//  草稿：保存时把已扫图号列表发给后端，写库为"草稿"；下次加载可识别
-// ═══════════════════════════════════════════════════════════════════════════
-
 let currentUser = { name: "获取中...", id: "" };
 
 /*
@@ -17,26 +11,22 @@ let groupedData = {};
 
 // ── 初始化 ────────────────────────────────────────────────────────────────
 $(document).ready(() => {
-  // 读缓存用户信息（首页已缓存，这里直接用，不再发起 getUserInfo 握手）
   const cached = feishuGetUser();
-  if (cached) {
-    currentUser = { name: cached.nickName, id: cached.openId || "" };
-  }
 
-  feishuAuth({
-    jsApiList: ['scanCode', 'chooseContact', 'getUserInfo'],
-    onReady() {
-      // 如果缓存没有（首次 or 过期），降级调一次 getUserInfo
-      if (!feishuGetUser()) {
-        tt.getUserInfo({
-          success(res) {
-            feishuSaveUser(res.userInfo);
-            currentUser = { name: res.userInfo.nickName, id: res.userInfo.openId || "" };
-          }
-        });
-      }
-    }
-  });
+  // 必须确保拿到了真实的 openId
+  if (cached && cached.openId) {
+    currentUser = { name: cached.nickName, id: cached.openId };
+
+    // 初始化扫码等 JSAPI
+    feishuAuth({
+      jsApiList: ['scanCode', 'chooseContact'],
+      onReady() { /* 就绪后可以扫码 */ }
+    });
+  } else {
+    // 缓存失效或异常访问，直接弹窗拦截并踢回主页
+    alert("登录状态已过期或异常，请返回主页重新加载。");
+    window.location.href = "/";
+  }
 });
 
 // ── 扫码入口 ──────────────────────────────────────────────────────────────
@@ -73,18 +63,13 @@ function processScanData(resultStr) {
     return;
   }
 
-  // 拆分工作令号：按 PJ 前缀分割（PJ开头的工作令号）
-  // 例："PJ0126001-JGPJ0124165-XS-AT001" → ["PJ0126001-JG","PJ0124165-XS-AT001"]
-  // 空串（无工作令号）→ [] 表示匹配 work_order_id 为空的行
   const orderNums = parseOrderNums(rawOrderNum);
 
-  // 已加载的单：直接处理命中逻辑
   if (groupedData[borrowOrderId]) {
     hitChart(borrowOrderId, chartNo, orderNums);
     return;
   }
 
-  // 未加载：去后端拉取明细
   fetch(`/api/order/${encodeURIComponent(borrowOrderId)}`)
     .then(r => r.json())
     .then(res => {
@@ -93,7 +78,6 @@ function processScanData(resultStr) {
         return;
       }
 
-      // 整单已全部借出 → 只提示，不加载明细
       if (res.all_out) {
         const outItem = res.data.find(it => it.status === '已借出');
         const info = outItem
@@ -103,7 +87,6 @@ function processScanData(resultStr) {
         return;
       }
 
-      // 加载明细到内存；草稿行的 _scanned 标为 true
       groupedData[borrowOrderId] = {
         borrower: null,
         savedAt:  null,
@@ -124,40 +107,16 @@ function processScanData(resultStr) {
     .catch(() => showAlert("网络异常，请检查后重试", () => startScan()));
 }
 
-/**
- * 将二维码中拼接的工作令号字符串拆分为数组。
- * 规则：以 "PJ" 作为每个工作令号的起始标志进行分割。
- *   "PJ0126001-JGPJ0124165-XS-AT001" → ["PJ0126001-JG", "PJ0124165-XS-AT001"]
- *   ""  → []   （无工作令号，匹配 work_order_id 为空的行）
- *   "PJ0126001-JG" → ["PJ0126001-JG"]
- *
- * 若将来工作令前缀不是 PJ，可在此处扩展正则。
- */
 function parseOrderNums(raw) {
   if (!raw || !raw.trim()) return [];
-  // 按 PJ 分割，过滤掉空字符串，再拼回 PJ 前缀
   const parts = raw.split(/(?=PJ)/);
   return parts.map(s => s.trim()).filter(Boolean);
 }
 
 // ── 命中某张图纸 ──────────────────────────────────────────────────────────
-/**
- * @param {string}   borrowOrderId  借用单号
- * @param {string}   chartNo        图号
- * @param {string[]} orderNums      已拆分的工作令号数组
- *                                  [] 表示二维码中无工作令号，匹配 work_order_id 为空的行
- *
- * 匹配规则：
- *   - 先按 chartNo 过滤候选行（排除无图）
- *   - 再按 orderNums 精确匹配 work_order_id：
- *       · orderNums 非空 → 只标记 work_order_id 在 orderNums 中的行
- *       · orderNums 为空 → 只标记 work_order_id 为空/null 的行
- *   - 这样"不同借用单借同一图"各自只影响自己单号下对应工作令的行
- */
 function hitChart(borrowOrderId, chartNo, orderNums) {
   let group = groupedData[borrowOrderId];
 
-  // ① 该借用单下所有图号匹配的行（含无图）
   const byChart = group.items.filter(it => it.chart_no === chartNo);
 
   if (byChart.length === 0) {
@@ -165,17 +124,14 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
     return;
   }
 
-  // ② 全部是无图行
   if (byChart.every(it => it.status === '无图')) {
     showAlert(`图号【${chartNo}】幅面为【无图】，无实体图纸，无需借出操作。`, () => startScan());
     return;
   }
 
-  // ③ 按工作令号精确匹配（排除无图行）
   const actionable = byChart.filter(it => it.status !== '无图' && matchOrderNum(it.work_order_id, orderNums));
 
   if (actionable.length === 0) {
-    // 图号存在但工作令号对不上——可能是打印了两张图，扫到了另一张
     const allOrders = byChart
       .filter(it => it.status !== '无图')
       .map(it => it.work_order_id || '（无工作令）')
@@ -187,17 +143,14 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
     return;
   }
 
-  // ④ 命中的行是否已全部扫过
   if (actionable.every(it => it._scanned)) {
     const orders = actionable.map(it => it.work_order_id || '（无工作令）').join('、');
     showAlert(`图号【${chartNo}】（${orders}）已扫过，无需重复。`, () => startScan());
     return;
   }
 
-  // ⑤ 标记命中行为已扫（仅内存，不写库）
   actionable.forEach(it => { it._scanned = true; });
 
-  // 将命中的借用单置顶（移到 groupedData 第一位）
   promoteOrder(borrowOrderId);
   renderList();
 
@@ -211,13 +164,11 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
     toastMsg = `扫码成功：${chartNo}`;
   }
 
-  // 检查该单是否已全部完成
-  group      = groupedData[borrowOrderId];
-  const scannable  = group.items.filter(it => it.status !== '无图');
-  const allDone    = scannable.length > 0 && scannable.every(it => it._scanned);
+  group           = groupedData[borrowOrderId];
+  const scannable = group.items.filter(it => it.status !== '无图');
+  const allDone   = scannable.length > 0 && scannable.every(it => it._scanned);
 
   if (allDone) {
-    // 整单扫完：提示完成，不自动续扫，等用户手动点扫码按钮
     showToast(toastMsg, "success");
     setTimeout(() => {
       showAlert(`借用单【${borrowOrderId}】全部图纸已扫完！\n请确认借用人后点击【提交借出】。`);
@@ -228,11 +179,6 @@ function hitChart(borrowOrderId, chartNo, orderNums) {
   }
 }
 
-/**
- * 将指定借用单移到 groupedData 的第一位（置顶活跃单）。
- * JS 对象 key 的插入顺序在现代引擎中是稳定的，
- * 通过重建对象来实现重排。
- */
 function promoteOrder(borrowOrderId) {
   if (!groupedData[borrowOrderId]) return;
   const entry  = groupedData[borrowOrderId];
@@ -242,21 +188,13 @@ function promoteOrder(borrowOrderId) {
   groupedData = { [borrowOrderId]: entry, ...others };
 }
 
-/**
- * 判断某行的 work_order_id 是否与二维码中的工作令号列表匹配。
- *   - orderNums 非空：work_order_id 必须在列表中
- *   - orderNums 为空：work_order_id 必须为空/null/undefined
- */
 function matchOrderNum(workOrderId, orderNums) {
   const wid = (workOrderId || "").trim();
-  if (orderNums.length === 0) {
-    // 二维码无工作令号 → 只匹配库中 work_order_id 为空的行
-    return wid === "";
-  }
+  if (orderNums.length === 0) return wid === "";
   return orderNums.includes(wid);
 }
 
-// ── 草稿列表弹窗（iOS 轮盘选择器） ───────────────────────────────────────
+// ── 草稿列表弹窗 ──────────────────────────────────────────────────────────
 function openDraftList() {
   fetch('/api/drafts')
     .then(r => r.json())
@@ -270,16 +208,11 @@ function openDraftList() {
     .catch(() => showAlert("加载草稿失败，请重试"));
 }
 
-/**
- * 显示 iOS 风格轮盘选择器
- * @param {Array} drafts  [{borrow_order_id, saved_at, draft_count}, ...]
- */
 function showWheelPicker(drafts) {
-  // 如果已有弹层则移除
   $('#draft-picker-mask').remove();
 
-  const ITEM_H = 44;   // 每项高度 px
-  const VISIBLE = 5;   // 可见行数（奇数，中间行为选中项）
+  const ITEM_H = 44;
+  const VISIBLE = 5;
 
   const itemsHtml = drafts.map((d, i) => `
     <div class="wp-item" data-index="${i}">
@@ -306,20 +239,13 @@ function showWheelPicker(drafts) {
 
   $('body').append(mask);
 
-  // ── 轮盘滚动逻辑 ──────────────────────────────────────────────────────
   const $wheel = $('#dp-wheel');
   let selectedIdx = 0;
-  let startY = 0, lastY = 0, velocity = 0, rafId = null;
-  let currentOffset = 0;   // 当前 translateY 偏移
+  let lastY = 0, velocity = 0, rafId = null;
+  let currentOffset = 0;
 
-  function clampIdx(idx) {
-    return Math.max(0, Math.min(drafts.length - 1, idx));
-  }
-
-  function offsetForIdx(idx) {
-    // 让 idx 项居中：中心位置 = VISIBLE/2 * ITEM_H
-    return Math.floor(VISIBLE / 2) * ITEM_H - idx * ITEM_H;
-  }
+  function clampIdx(idx) { return Math.max(0, Math.min(drafts.length - 1, idx)); }
+  function offsetForIdx(idx) { return Math.floor(VISIBLE / 2) * ITEM_H - idx * ITEM_H; }
 
   function applyOffset(offset, animate) {
     $wheel.css({
@@ -330,7 +256,6 @@ function showWheelPicker(drafts) {
   }
 
   function snapToNearest(offset) {
-    // 由偏移反推最近的 index
     const center = Math.floor(VISIBLE / 2) * ITEM_H;
     const rawIdx = (center - offset) / ITEM_H;
     selectedIdx  = clampIdx(Math.round(rawIdx));
@@ -343,50 +268,37 @@ function showWheelPicker(drafts) {
     $(`#dp-wheel .wp-item[data-index="${selectedIdx}"]`).addClass('wp-selected');
   }
 
-  // 初始定位到第 0 项
   applyOffset(offsetForIdx(0), false);
   updateHighlight();
 
-  // Touch 事件
   $wheel[0].addEventListener('touchstart', e => {
     cancelAnimationFrame(rafId);
-    startY = lastY = e.touches[0].clientY;
+    lastY = e.touches[0].clientY;
     velocity = 0;
     $wheel.css('transition', 'none');
   }, { passive: true });
 
   $wheel[0].addEventListener('touchmove', e => {
-    const y    = e.touches[0].clientY;
-    const dy   = y - lastY;
-    velocity   = dy;
-    lastY      = y;
-    currentOffset = Math.min(
-      offsetForIdx(0),
-      Math.max(offsetForIdx(drafts.length - 1), currentOffset + dy)
-    );
+    const y   = e.touches[0].clientY;
+    const dy  = y - lastY;
+    velocity  = dy;
+    lastY     = y;
+    currentOffset = Math.min(offsetForIdx(0), Math.max(offsetForIdx(drafts.length - 1), currentOffset + dy));
     $wheel.css('transform', `translateY(${currentOffset}px)`);
   }, { passive: true });
 
   $wheel[0].addEventListener('touchend', () => {
-    // 惯性滑动
     let inertiaOffset = currentOffset;
     function inertia() {
-      if (Math.abs(velocity) < 0.5) {
-        snapToNearest(inertiaOffset);
-        return;
-      }
-      velocity    *= 0.92;
-      inertiaOffset = Math.min(
-        offsetForIdx(0),
-        Math.max(offsetForIdx(drafts.length - 1), inertiaOffset + velocity)
-      );
+      if (Math.abs(velocity) < 0.5) { snapToNearest(inertiaOffset); return; }
+      velocity      *= 0.92;
+      inertiaOffset  = Math.min(offsetForIdx(0), Math.max(offsetForIdx(drafts.length - 1), inertiaOffset + velocity));
       $wheel.css('transform', `translateY(${inertiaOffset}px)`);
       rafId = requestAnimationFrame(inertia);
     }
     rafId = requestAnimationFrame(inertia);
   });
 
-  // 鼠标滚轮（PC 调试用）
   $wheel[0].addEventListener('wheel', e => {
     e.preventDefault();
     selectedIdx = clampIdx(selectedIdx + (e.deltaY > 0 ? 1 : -1));
@@ -394,28 +306,21 @@ function showWheelPicker(drafts) {
     updateHighlight();
   }, { passive: false });
 
-  // 点击某项直接选中
   $wheel.on('click', '.wp-item', function () {
     selectedIdx = parseInt($(this).data('index'), 10);
     applyOffset(offsetForIdx(selectedIdx), true);
     updateHighlight();
   });
 
-  // 按钮事件
   $('#dp-cancel').on('click', () => mask.remove());
   $('#dp-confirm').on('click', () => {
     const chosen = drafts[selectedIdx];
     mask.remove();
     loadOrder(chosen.borrow_order_id);
   });
-
-  // 点蒙层关闭
-  mask.on('click', function (e) {
-    if (e.target === this) mask.remove();
-  });
+  mask.on('click', function (e) { if (e.target === this) mask.remove(); });
 }
 
-// 加载单号明细到 groupedData（草稿列表点击或其他场景调用）
 function loadOrder(borrowOrderId) {
   if (groupedData[borrowOrderId]) {
     showToast(`单号 ${borrowOrderId} 已加载`, "success");
@@ -424,10 +329,7 @@ function loadOrder(borrowOrderId) {
   fetch(`/api/order/${encodeURIComponent(borrowOrderId)}`)
     .then(r => r.json())
     .then(res => {
-      if (res.code !== 0) {
-        showAlert(res.msg);
-        return;
-      }
+      if (res.code !== 0) { showAlert(res.msg); return; }
       if (res.all_out) {
         const outItem = res.data.find(it => it.status === '已借出');
         const info = outItem
@@ -439,10 +341,7 @@ function loadOrder(borrowOrderId) {
       groupedData[borrowOrderId] = {
         borrower: null,
         savedAt:  null,
-        items: res.data.map(it => ({
-          ...it,
-          _scanned: it.status === '草稿'
-        }))
+        items: res.data.map(it => ({ ...it, _scanned: it.status === '草稿' }))
       };
       if (res.has_draft) {
         const draftItem = res.data.find(it => it.status === '草稿');
@@ -454,7 +353,7 @@ function loadOrder(borrowOrderId) {
     .catch(() => showAlert("加载失败，请重试"));
 }
 
-// ── 保存草稿（按单号） ────────────────────────────────────────────────────
+// ── 保存草稿 ──────────────────────────────────────────────────────────────
 function saveDraft(borrowOrderId) {
   const group = groupedData[borrowOrderId];
   if (!group) return;
@@ -473,16 +372,12 @@ function saveDraft(borrowOrderId) {
   fetch('/api/save_draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      borrow_order_id: borrowOrderId,
-      scanned_chart_nos: scannedNos
-    })
+    body: JSON.stringify({ borrow_order_id: borrowOrderId, scanned_chart_nos: scannedNos })
   })
   .then(r => r.json())
   .then(res => {
     if (res.code === 0) {
       group.savedAt = res.saved_at;
-      // 同步内存中已扫行的 status 为草稿，以便下次加载识别
       group.items.forEach(it => {
         if (it._scanned && it.status !== '无图') it.status = '草稿';
       });
@@ -495,12 +390,11 @@ function saveDraft(borrowOrderId) {
   .catch(() => showAlert("网络异常，保存草稿失败"));
 }
 
-// ── 提交借出（按单号） ────────────────────────────────────────────────────
+// ── 提交借出 ──────────────────────────────────────────────────────────────
 function submitOrder(borrowOrderId) {
   const group = groupedData[borrowOrderId];
   if (!group) return;
 
-  // 校验借用人
   if (!group.borrower) {
     showAlert(`请先为借用单【${borrowOrderId}】选择借用人！`);
     const el = document.getElementById(`group-${borrowOrderId}`);
@@ -508,7 +402,6 @@ function submitOrder(borrowOrderId) {
     return;
   }
 
-  // 校验是否全部扫完（每行独立校验，同图号不同工作令各自需要扫到）
   const unscanned = group.items.filter(it => it.status !== '无图' && !it._scanned);
   if (unscanned.length > 0) {
     const detail = unscanned.slice(0, 3).map(it =>
@@ -521,20 +414,25 @@ function submitOrder(borrowOrderId) {
 
   if (!confirm(`确认将借用单【${borrowOrderId}】的全部图纸借给【${group.borrower.name}】吗？`)) return;
 
+  // ── 出借管理人 = 当前登录用户 ────────────────────────────────────────
+  const lendManagerName = currentUser.name || "";
+  const lendManagerId   = currentUser.id   || "";
+
   fetch('/api/submit_order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      borrow_order_id: borrowOrderId,
-      borrower_name:   group.borrower.name,
-      borrower_id:     group.borrower.id
+      borrow_order_id:   borrowOrderId,
+      borrower_name:     group.borrower.name,
+      borrower_id:       group.borrower.id,
+      lend_manager_name: lendManagerName,   // ← 新增
+      lend_manager_id:   lendManagerId      // ← 新增
     })
   })
   .then(r => r.json())
   .then(res => {
     if (res.code === 0) {
       showToast("提交成功！", "success");
-      // 从内存移除已完成的单，页面刷新
       setTimeout(() => {
         delete groupedData[borrowOrderId];
         renderList();
@@ -546,7 +444,7 @@ function submitOrder(borrowOrderId) {
   .catch(() => showAlert("网络异常，提交失败"));
 }
 
-// ── 选择借用人（每个分组独立） ────────────────────────────────────────────
+// ── 选择借用人 ────────────────────────────────────────────────────────────
 function selectBorrower(borrowOrderId) {
   if (!window.tt || !tt.chooseContact) {
     alert("请在飞书客户端中使用此功能");
@@ -585,7 +483,6 @@ function renderList() {
     const group    = groupedData[bNum];
     const borrower = group.borrower;
 
-    // 进度统计：每行独立计算（同图号不同工作令是不同的行，各自要扫）
     const scannable    = group.items.filter(it => it.status !== '无图');
     const scannedCount = scannable.filter(it => it._scanned).length;
     const totalCount   = scannable.length;
@@ -599,8 +496,17 @@ function renderList() {
       ? `<span class="draft-tag">草稿 ${group.savedAt}</span>`
       : '';
 
+    // 出借管理人展示行
+    const managerName = currentUser.name && currentUser.name !== "获取中..."
+      ? currentUser.name
+      : "（登录中）";
+    const managerTag = `
+      <div class="manager-row">
+        <span class="manager-label">出借管理人</span>
+        <span class="manager-value">${managerName}</span>
+      </div>`;
+
     const rowsHtml = group.items.map(item => {
-      // 显示状态：已扫用"已扫码"替代数据库状态，让用户看到实时进度
       let displayStatus = item.status;
       if (item._scanned && item.status !== '无图') displayStatus = '已扫码';
       const { cls, label } = statusStyle(displayStatus);
@@ -622,7 +528,6 @@ function renderList() {
 
     $list.append(`
       <div class="group-card" id="group-${bNum}">
-        <!-- 分组头部 -->
         <div class="group-header">
           <div class="group-title-wrap">
             <div class="group-title">单号：${bNum}</div>
@@ -634,7 +539,10 @@ function renderList() {
           </div>
         </div>
 
-        <!-- 借用人行 -->
+        <!-- 出借管理人（只读，当前登录用户） -->
+        ${managerTag}
+
+        <!-- 借用人行（可点击选择） -->
         <div class="borrower-row" onclick="selectBorrower('${bNum}')">
           <div class="borrower-row-left">
             <span class="borrower-row-label">借用人 <span class="required-star">*</span></span>
@@ -647,7 +555,6 @@ function renderList() {
           </div>
         </div>
 
-        <!-- 明细表格 -->
         <table class="item-table">
           <thead>
             <tr>
@@ -661,7 +568,6 @@ function renderList() {
           <tbody>${rowsHtml}</tbody>
         </table>
 
-        <!-- 单据操作按钮 -->
         <div class="group-actions">
           <button class="btn-save-draft" onclick="saveDraft('${bNum}')">
             💾 保存草稿
@@ -676,7 +582,7 @@ function renderList() {
   });
 }
 
-// ── 状态 → 样式映射 ───────────────────────────────────────────────────────
+// ── 状态样式映射 ──────────────────────────────────────────────────────────
 function statusStyle(status) {
   switch (status) {
     case '已扫码':  return { cls: 'badge-scanned',   label: '已扫码' };
@@ -697,19 +603,13 @@ function showToast(title, icon = "none") {
   }
 }
 
-/**
- * @param {string}   msg        提示内容
- * @param {Function} [afterClose] 弹窗关闭后执行（用于重新触发扫码）
- */
 function showAlert(msg, afterClose) {
   if (window.tt && tt.showModal) {
     tt.showModal({
       title: "提示",
       content: msg,
       showCancel: false,
-      complete() {
-        if (typeof afterClose === 'function') afterClose();
-      }
+      complete() { if (typeof afterClose === 'function') afterClose(); }
     });
   } else {
     alert(msg);

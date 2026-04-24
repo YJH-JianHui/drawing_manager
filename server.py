@@ -6,6 +6,7 @@ import hashlib
 import re
 import pandas as pd
 import sqlite3
+import requests
 from auth import Auth
 from dotenv import load_dotenv, find_dotenv
 from flask import Flask, request, jsonify, render_template
@@ -19,7 +20,6 @@ APP_ID      = os.getenv("APP_ID")
 APP_SECRET  = os.getenv("APP_SECRET")
 FEISHU_HOST = os.getenv("FEISHU_HOST")
 
-# 状态常量
 STATUS_PENDING  = '待借出'
 STATUS_DRAFT    = '草稿'
 STATUS_OUT      = '已借出'
@@ -37,22 +37,27 @@ def init_db():
     conn = get_conn()
     conn.execute('''
         CREATE TABLE IF NOT EXISTS drawing_records (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            borrow_order_id TEXT,
-            seq_no          TEXT,
-            work_order_id   TEXT,
-            chart_no        TEXT,
-            purpose         TEXT,
-            page_format     TEXT,
-            drawing_type    TEXT,
-            borrower_name   TEXT,
-            borrower_id     TEXT,
-            borrow_time     TEXT,
-            return_time     TEXT,
-            status          TEXT DEFAULT '待借出'
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            borrow_order_id      TEXT,
+            seq_no               TEXT,
+            work_order_id        TEXT,
+            chart_no             TEXT,
+            purpose              TEXT,
+            page_format          TEXT,
+            drawing_type         TEXT,
+            lend_manager_name    TEXT,
+            lend_manager_id      TEXT,
+            borrower_name        TEXT,
+            borrower_id          TEXT,
+            borrow_time          TEXT,
+            return_manager_name  TEXT,
+            return_manager_id    TEXT,
+            returner_name        TEXT,
+            returner_id          TEXT,
+            return_time          TEXT,
+            status               TEXT DEFAULT '待借出'
         )
     ''')
-    # ── 新增：角色成员表 ──────────────────────────────────────────────
     conn.execute('''
         CREATE TABLE IF NOT EXISTS role_members (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,9 +81,8 @@ def auth_error_handler(ex):
     return jsonify(message=str(ex)), 500
 
 
-# ── 页面路由 ──────────────────────────────────────────────────────────────
 @app.route("/",          methods=["GET"])
-def get_home():           return render_template("index.html")
+def get_home():           return render_template("index.html", app_id=APP_ID)
 
 @app.route("/checkout",  methods=["GET"])
 def get_checkout_page():  return render_template("checkout.html")
@@ -89,14 +93,51 @@ def get_query_page():     return render_template("query.html")
 @app.route("/import",    methods=["GET"])
 def import_page():        return render_template("import.html")
 
-@app.route("/settings",  methods=["GET"])          # ← 新增
+@app.route("/settings",  methods=["GET"])
 def settings_page():      return render_template("settings.html")
 
+@app.route("/api/login", methods=["POST"])
+def feishu_login():
+    body = request.get_json()
+    code = body.get("code")
+    if not code:
+        return jsonify({"code": -1, "msg": "缺少授权码 code"})
+
+    # 1. 确保拿到最新的 tenant_access_token
+    auth._refresh_token_if_needed()
+
+    # 2. 用 code 换取 user_access_token 和 用户身份信息
+    url = f"{FEISHU_HOST}/open-apis/authen/v1/access_token"
+    headers = {
+        "Authorization": f"Bearer {auth.tenant_access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "grant_type": "authorization_code",
+        "code": code
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10).json()
+        if resp.get("code") == 0:
+            data = resp.get("data", {})
+            return jsonify({
+                "code": 0,
+                "data": {
+                    "openId": data.get("open_id"),  # 真实唯一标识
+                    "nickName": data.get("name"),  # 真实姓名
+                    "avatarUrl": data.get("avatar_url")  # 头像
+                }
+            })
+        else:
+            return jsonify({"code": -1, "msg": f"获取用户信息失败: {resp.get('msg')}"})
+    except Exception as e:
+        return jsonify({"code": -1, "msg": f"请求飞书API异常: {str(e)}"})
 
 @app.route("/get_config_parameters", methods=["GET"])
 def get_config_parameters():
-    url = request.args.get("url")
-    ticket = auth.get_ticket()
+    url       = request.args.get("url")
+    ticket    = auth.get_ticket()
     timestamp = int(time.time()) * 1000
     verify_str = "jsapi_ticket={}&noncestr={}&timestamp={}&url={}".format(
         ticket, NONCE_STR, timestamp, url)
@@ -105,7 +146,6 @@ def get_config_parameters():
                     "noncestr": NONCE_STR, "timestamp": timestamp})
 
 
-# ── API: 查询单号明细 ──────────────────────────────────────────────────────
 @app.route("/api/order/<borrow_order_id>", methods=["GET"])
 def get_order_detail(borrow_order_id):
     conn = get_conn()
@@ -119,19 +159,15 @@ def get_order_detail(borrow_order_id):
     if not rows:
         return jsonify({"code": 1, "msg": "借用单不存在，请先导入", "data": []})
 
-    data = [dict(r) for r in rows]
-
-    non_draw = [r for r in data if r['status'] != STATUS_NODRAW]
-    all_out  = bool(non_draw) and all(r['status'] == STATUS_OUT for r in non_draw)
+    data      = [dict(r) for r in rows]
+    non_draw  = [r for r in data if r['status'] != STATUS_NODRAW]
+    all_out   = bool(non_draw) and all(r['status'] == STATUS_OUT for r in non_draw)
     has_draft = any(r['status'] == STATUS_DRAFT for r in data)
 
-    return jsonify({
-        "code": 0, "msg": "ok", "data": data,
-        "all_out": all_out, "has_draft": has_draft
-    })
+    return jsonify({"code": 0, "msg": "ok", "data": data,
+                    "all_out": all_out, "has_draft": has_draft})
 
 
-# ── API: 草稿列表 ──────────────────────────────────────────────────────────
 @app.route("/api/drafts", methods=["GET"])
 def get_drafts():
     conn = get_conn()
@@ -149,7 +185,6 @@ def get_drafts():
     return jsonify({"code": 0, "data": [dict(r) for r in rows]})
 
 
-# ── API: 保存草稿 ──────────────────────────────────────────────────────────
 @app.route("/api/save_draft", methods=["POST"])
 def save_draft():
     body            = request.get_json()
@@ -161,13 +196,11 @@ def save_draft():
 
     saved_at = time.strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
-
     conn.execute(
         "UPDATE drawing_records SET status=?, borrow_time=NULL "
         "WHERE borrow_order_id=? AND status=?",
         (STATUS_PENDING, borrow_order_id, STATUS_DRAFT)
     )
-
     if scanned_nos:
         ph = ','.join('?' * len(scanned_nos))
         conn.execute(
@@ -175,19 +208,19 @@ def save_draft():
             f"WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status!=?",
             [STATUS_DRAFT, saved_at, borrow_order_id] + scanned_nos + [STATUS_NODRAW]
         )
-
     conn.commit()
     conn.close()
     return jsonify({"code": 0, "msg": "草稿已保存", "saved_at": saved_at})
 
 
-# ── API: 提交借出 ──────────────────────────────────────────────────────────
 @app.route("/api/submit_order", methods=["POST"])
 def submit_order():
-    body            = request.get_json()
-    borrow_order_id = body.get("borrow_order_id")
-    borrower_name   = body.get("borrower_name", "")
-    borrower_id     = body.get("borrower_id", "")
+    body = request.get_json()
+    borrow_order_id   = body.get("borrow_order_id")
+    borrower_name     = body.get("borrower_name", "")
+    borrower_id       = body.get("borrower_id", "")
+    lend_manager_name = body.get("lend_manager_name", "")
+    lend_manager_id   = body.get("lend_manager_id", "")
 
     if not borrow_order_id or not borrower_name:
         return jsonify({"code": -1, "msg": "借用单号和借用人不能为空"})
@@ -195,10 +228,16 @@ def submit_order():
     borrow_time = time.strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
     conn.execute(
-        "UPDATE drawing_records "
-        "SET status=?, borrower_name=?, borrower_id=?, borrow_time=? "
-        "WHERE borrow_order_id=? AND status!=?",
-        (STATUS_OUT, borrower_name, borrower_id, borrow_time,
+        '''UPDATE drawing_records
+           SET status            = ?,
+               borrower_name     = ?,
+               borrower_id       = ?,
+               lend_manager_name = ?,
+               lend_manager_id   = ?,
+               borrow_time       = ?
+           WHERE borrow_order_id = ? AND status != ?''',
+        (STATUS_OUT, borrower_name, borrower_id,
+         lend_manager_name, lend_manager_id, borrow_time,
          borrow_order_id, STATUS_NODRAW)
     )
     conn.commit()
@@ -206,7 +245,6 @@ def submit_order():
     return jsonify({"code": 0, "msg": "提交成功", "borrow_time": borrow_time})
 
 
-# ── API: 导入 Excel ────────────────────────────────────────────────────────
 @app.route("/api/upload_excel", methods=["POST"])
 def upload_excel():
     if 'file' not in request.files:
@@ -235,15 +273,14 @@ def upload_excel():
             return jsonify({"code": -1, "msg": f"单号 {borrow_order_id} 已有借出记录，无法重新导入"})
 
         conn.execute('DELETE FROM drawing_records WHERE borrow_order_id=?', (borrow_order_id,))
-
         count = 0
         for _, row in df.iterrows():
             page_format    = str(row.get('幅面', '')).strip()
             initial_status = STATUS_NODRAW if page_format == '无图' else STATUS_PENDING
             conn.execute('''
                 INSERT INTO drawing_records
-                (borrow_order_id, seq_no, work_order_id, chart_no, purpose,
-                 page_format, drawing_type, status)
+                    (borrow_order_id, seq_no, work_order_id, chart_no,
+                     purpose, page_format, drawing_type, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 borrow_order_id,
@@ -266,7 +303,6 @@ def upload_excel():
         return jsonify({"code": -1, "msg": f"解析失败: {str(e)}"})
 
 
-# ── API: 获取角色成员 ──────────────────────────────────────────────────────
 @app.route("/api/settings/roles", methods=["GET"])
 def get_roles():
     conn = get_conn()
@@ -274,26 +310,21 @@ def get_roles():
         'SELECT role_key, name, open_id FROM role_members ORDER BY id'
     ).fetchall()
     conn.close()
-
     data = {}
     for row in rows:
         key = row['role_key']
         if key not in data:
             data[key] = []
         data[key].append({'name': row['name'], 'open_id': row['open_id']})
-
     return jsonify({'code': 0, 'data': data})
 
 
-# ── API: 保存角色成员（整体覆盖） ─────────────────────────────────────────
 @app.route("/api/settings/roles", methods=["POST"])
 def save_roles():
     body  = request.get_json()
     roles = body.get('roles', {})
-
     if not isinstance(roles, dict):
         return jsonify({'code': -1, 'msg': '数据格式错误'})
-
     conn = get_conn()
     try:
         conn.execute('DELETE FROM role_members')
@@ -314,7 +345,6 @@ def save_roles():
         conn.rollback()
         conn.close()
         return jsonify({'code': -1, 'msg': f'保存失败: {str(e)}'})
-
     conn.close()
     return jsonify({'code': 0, 'msg': '保存成功'})
 

@@ -5,36 +5,59 @@ $(document).ready(function () {
         return;
     }
 
-    // ✅ 修复：有缓存用户时，先立即渲染用户信息 + 进入 App，
-    // 再在后台静默完成 h5sdk.config（为了后续 JSAPI 可用）。
-    // 这样从导入页返回时不会出现白屏转圈。
     const cached = feishuGetUser();
-    if (cached) {
+    // 增加对 openId 的校验，防止拿到了旧缓存的假数据
+    if (cached && cached.openId) {
         showUser(cached);
         enterApp();
-        // 后台静默鉴权（保证 JSAPI 可用，但不阻塞 UI）
-        feishuAuth({ jsApiList: ['getUserInfo', 'filePicker'] });
+        // 后台静默鉴权
+        feishuAuth({ jsApiList:['filePicker'] });
         return;
     }
 
-    // 无缓存：走完整鉴权流程（首次打开）
+    // 无有效缓存：走完整鉴权 -> 请求 AuthCode -> 后端验证流程
     feishuAuth({
-        jsApiList: ['getUserInfo', 'filePicker'],
+        jsApiList: ['filePicker'],
         onReady() {
-            tt.getUserInfo({
+            // 核心改变：调用免登接口
+            tt.requestAuthCode({
+                appId: window.FEISHU_APP_ID,
                 success(res) {
-                    feishuSaveUser(res.userInfo);
-                    showUser(res.userInfo);
-                    enterApp();
+                    $("#loading-screen p").text("获取授权成功，正在安全登录...");
+
+                    // 将 code 发给后端换取用户信息
+                    fetch('/api/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: res.code })
+                    })
+                    .then(r => r.json())
+                    .then(loginRes => {
+                        if (loginRes.code === 0) {
+                            // 这里拿到的就是后端解析的、绝对安全的 openId 和姓名
+                            feishuSaveUser(loginRes.data);
+                            showUser(loginRes.data);
+                            enterApp();
+                        } else {
+                            $("#loading-screen p").text("登录失败：" + loginRes.msg).css("color", "#f54a45");
+                            $(".loader").hide();
+                        }
+                    })
+                    .catch(err => {
+                        $("#loading-screen p").text("网络异常，登录中断").css("color", "#f54a45");
+                        $(".loader").hide();
+                    });
                 },
                 fail(err) {
-                    $("#loading-screen p").text("获取用户信息失败");
-                    console.error(err);
+                    $("#loading-screen p").text("获取免登授权码失败").css("color", "#f54a45");
+                    $(".loader").hide();
+                    console.error("requestAuthCode 失败:", err);
                 }
             });
         },
         onFail(err) {
-            $("#loading-screen p").text("登录鉴权失败，请重试");
+            $("#loading-screen p").text("飞书环境鉴权失败，请重试").css("color", "#f54a45");
+            $(".loader").hide();
         }
     });
 });
@@ -49,7 +72,7 @@ function enterApp() {
     setTimeout(() => {
         $("#loading-screen").addClass("hidden");
         $("#main-app").removeClass("hidden").addClass("fade-in");
-    }, 300); // ✅ 从 500ms 缩短到 300ms，有缓存时几乎感知不到
+    }, 300);
 }
 
 function handleCheckout() { window.location.href = "/checkout"; }

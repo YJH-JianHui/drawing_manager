@@ -414,3 +414,27 @@ body {
   z-index: 1;
   border-radius: 4px;
 }
+
+.manager-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f1f3;
+  background: #f8faff;
+}
+
+.manager-label {
+  font-size: 13px;
+  color: #646a73;
+  white-space: nowrap;
+}
+
+.manager-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #3370ff;
+  background: #eef3ff;
+  padding: 2px 10px;
+  border-radius: 20px;
+}
