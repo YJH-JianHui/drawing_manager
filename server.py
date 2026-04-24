@@ -352,5 +352,141 @@ def save_roles():
     return jsonify({'code': 0, 'msg': '保存成功'})
 
 
+@app.route("/return", methods=["GET"])
+def return_page():
+    return render_template("return.html")
+
+
+@app.route("/api/my_roles", methods=["GET"])
+def get_my_roles():
+    """获取当前登录用户的角色集"""
+    open_id = request.args.get("open_id")
+    if not open_id:
+        return jsonify({"code": -1, "msg": "缺少 open_id"})
+
+    conn = get_conn()
+    rows = conn.execute("SELECT role_key FROM role_members WHERE open_id=?", (open_id,)).fetchall()
+    conn.close()
+
+    roles = [r['role_key'] for r in rows]
+    return jsonify({"code": 0, "roles": roles})
+
+
+@app.route("/api/return/order/<borrow_order_id>", methods=["GET"])
+def get_return_order(borrow_order_id):
+    """获取归还单明细"""
+    conn = get_conn()
+    rows = conn.execute(
+        'SELECT * FROM drawing_records WHERE borrow_order_id = ? ORDER BY CAST(seq_no AS INTEGER)',
+        (borrow_order_id,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"code": 1, "msg": "借用单不存在", "data": []})
+
+    return jsonify({"code": 0, "msg": "ok", "data": [dict(r) for r in rows]})
+
+
+@app.route("/api/return/drafts", methods=["GET"])
+def get_return_drafts():
+    """根据角色拉取对应的归还草稿"""
+    open_id = request.args.get("open_id")
+    if not open_id: return jsonify({"code": -1, "msg": "No open_id"})
+
+    conn = get_conn()
+    roles_rows = conn.execute("SELECT role_key FROM role_members WHERE open_id=?", (open_id,)).fetchall()
+    roles = [r['role_key'] for r in roles_rows]
+
+    statuses = []
+    # 借图员看【待还草稿】
+    if 'super_admin' in roles or 'borrower' in roles:
+        statuses.append(STATUS_DRAFT_RET_1)
+    # 图纸管理员看【已还草稿】
+    if 'super_admin' in roles or 'drawing_admin' in roles:
+        statuses.append(STATUS_DRAFT_RET_2)
+
+    if not statuses:
+        conn.close()
+        return jsonify({"code": 0, "data": []})
+
+    ph = ",".join("?" * len(statuses))
+    rows = conn.execute(f'''
+        SELECT borrow_order_id, MAX(return_time) AS saved_at, status
+        FROM drawing_records
+        WHERE status IN ({ph})
+        GROUP BY borrow_order_id, status
+        ORDER BY saved_at DESC
+    ''', statuses).fetchall()
+    conn.close()
+
+    return jsonify({"code": 0, "data": [dict(r) for r in rows]})
+
+
+@app.route("/api/return/save_draft", methods=["POST"])
+def save_return_draft():
+    """保存归还草稿（双步骤合并接口）"""
+    body = request.get_json()
+    borrow_order_id = body.get("borrow_order_id")
+    scanned_nos = body.get("scanned_chart_nos", [])
+    step = body.get("step")  # 1=借图员发起，2=管理员确认
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+
+    if step == 1:
+        # 第一步：已借出/待还草稿 -> 待还草稿
+        conn.execute("UPDATE drawing_records SET status=?, return_time=NULL WHERE borrow_order_id=? AND status=?",
+                     (STATUS_OUT, borrow_order_id, STATUS_DRAFT_RET_1))
+        if scanned_nos:
+            ph = ','.join('?' * len(scanned_nos))
+            conn.execute(
+                f"UPDATE drawing_records SET status=?, return_time=? WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status IN (?, ?)",
+                [STATUS_DRAFT_RET_1, now, borrow_order_id] + scanned_nos + [STATUS_OUT, STATUS_DRAFT_RET_1])
+    elif step == 2:
+        # 第二步：待归还/已还草稿 -> 已还草稿
+        conn.execute("UPDATE drawing_records SET status=?, return_time=NULL WHERE borrow_order_id=? AND status=?",
+                     (STATUS_PENDING_RET, borrow_order_id, STATUS_DRAFT_RET_2))
+        if scanned_nos:
+            ph = ','.join('?' * len(scanned_nos))
+            conn.execute(
+                f"UPDATE drawing_records SET status=?, return_time=? WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status IN (?, ?)",
+                [STATUS_DRAFT_RET_2, now, borrow_order_id] + scanned_nos + [STATUS_PENDING_RET, STATUS_DRAFT_RET_2])
+
+    conn.commit()
+    conn.close()
+    return jsonify({"code": 0, "msg": "草稿已保存", "saved_at": now})
+
+
+@app.route("/api/return/submit", methods=["POST"])
+def submit_return():
+    """提交归还（双步骤合并接口）"""
+    body = request.get_json()
+    borrow_order_id = body.get("borrow_order_id")
+    step = body.get("step")
+    user_name = body.get("user_name")
+    user_id = body.get("user_id")
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+
+    if step == 1:
+        # 第一步提交：待归还，写入归还发起人(借图员)
+        conn.execute('''UPDATE drawing_records 
+                        SET status=?, returner_name=?, returner_id=?, return_time=? 
+                        WHERE borrow_order_id=? AND status IN (?, ?)''',
+                     (STATUS_PENDING_RET, user_name, user_id, now, borrow_order_id, STATUS_OUT, STATUS_DRAFT_RET_1))
+    elif step == 2:
+        # 第二步提交：已归还，写入确认归还人(管理员)
+        conn.execute('''UPDATE drawing_records 
+                        SET status=?, return_manager_name=?, return_manager_id=?, return_time=? 
+                        WHERE borrow_order_id=? AND status IN (?, ?)''',
+                     (
+                     STATUS_RETURNED, user_name, user_id, now, borrow_order_id, STATUS_PENDING_RET, STATUS_DRAFT_RET_2))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"code": 0, "msg": "提交成功"})
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000, debug=True, use_reloader=False)

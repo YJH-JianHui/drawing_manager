@@ -80,15 +80,7 @@ function handleQuery()    { window.location.href = "/query"; }
 function handleImport()   { window.location.href = "/import"; }
 
 function handleReturn() {
-    if (window.tt && window.tt.scanCode) {
-        tt.scanCode({
-            scanType: ['barCode', 'qrCode'],
-            success(res) { alert(`归还成功：识别到图纸编号\n${res.result}`); },
-            fail(err)    { console.error("扫码失败:", err); }
-        });
-    } else {
-        alert("请在飞书客户端内打开以使用扫码功能！");
-    }
+    window.location.href = "/return";
 }
 
 function handleStats()    { alert("即将跳转到统计分析页面..."); }

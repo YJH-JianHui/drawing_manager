@@ -1,0 +1,25 @@
+@import url('/public/checkout.css');
+
+/* 复用 checkout.css 基础，覆盖/补充归还专属样式 */
+.return-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding-bottom: 30px;
+}
+
+/* 角色标签颜色 */
+.manager-value.role-borrower { color: #00796b; background: #e0f2f1; }
+.manager-value.role-admin { color: #1976d2; background: #e3f2fd; }
+
+/* 借用人为只读不可点，去掉下划线和箭头 */
+.borrower-value {
+  font-size: 15px; font-weight: 600; color: #1f2329;
+}
+.borrower-row { cursor: default; }
+.borrower-row:active { background: #fafbff; }
+
+/* 归还按钮颜色区分 - 用绿色 */
+.btn-submit-order {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 3px 10px rgba(16,185,129,0.3);
+}

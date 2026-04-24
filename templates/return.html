@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>图纸归还</title>
+  <link rel="stylesheet" href="/public/return.css" />
+  <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+  <script src="https://lf1-cdn-tos.bytegoofy.com/goofy/lark/op/h5-js-sdk-1.5.16.js"></script>
+  <script src="/public/feishu-auth.js"></script>
+</head>
+<body>
+  <div class="return-container">
+    <div class="header">
+      <div class="back-btn" onclick="history.back()">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+        </svg> 返回
+      </div>
+      <h2>图纸归还</h2>
+      <div style="width:60px;"></div>
+    </div>
+
+    <div class="action-area">
+      <button class="btn-draft-list" onclick="openDraftList()">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+          <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/>
+        </svg> 草稿
+      </button>
+      <button class="btn-scan" onclick="startScan()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><line x1="3" y1="12" x2="21" y2="12"/>
+        </svg> 扫码归还图纸
+      </button>
+    </div>
+
+    <div class="list-area">
+      <div class="list-header">已加载归还单 &nbsp;|&nbsp; 共 <span id="record-count">0</span> 条待处理</div>
+      <div id="record-list">
+        <div class="empty-tip">暂无数据，请扫码或点击【草稿】</div>
+      </div>
+    </div>
+  </div>
+  <script src="/public/return.js"></script>
+</body>
+</html>
