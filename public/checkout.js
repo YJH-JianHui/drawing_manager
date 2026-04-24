@@ -4,7 +4,7 @@ let currentUser = { name: "获取中...", id: "" };
  * groupedData[borrowOrderId] = {
  *   borrower  : null | { name, id },
  *   items     : [ ...db记录, 前端额外字段 _scanned:bool ]
- *   savedAt   : null | "2024-xx-xx xx:xx:xx"   草稿保存时间（仅草稿单有）
+ *   savedAt   : null | "2024-xx-xx xx:xx:xx"   待借草稿保存时间（仅待借草稿单有）
  * }
  */
 let groupedData = {};
@@ -92,12 +92,12 @@ function processScanData(resultStr) {
         savedAt:  null,
         items: res.data.map(it => ({
           ...it,
-          _scanned: it.status === '草稿'
+          _scanned: it.status === '待借草稿'
         }))
       };
 
       if (res.has_draft) {
-        const draftItem = res.data.find(it => it.status === '草稿');
+        const draftItem = res.data.find(it => it.status === '待借草稿');
         if (draftItem) groupedData[borrowOrderId].savedAt = draftItem.borrow_time;
       }
 
@@ -194,18 +194,18 @@ function matchOrderNum(workOrderId, orderNums) {
   return orderNums.includes(wid);
 }
 
-// ── 草稿列表弹窗 ──────────────────────────────────────────────────────────
+// ── 待借草稿列表弹窗 ──────────────────────────────────────────────────────────
 function openDraftList() {
   fetch('/api/drafts')
     .then(r => r.json())
     .then(res => {
       if (!res.data || res.data.length === 0) {
-        showAlert("暂无草稿记录");
+        showAlert("暂无待借草稿记录");
         return;
       }
       showWheelPicker(res.data);
     })
-    .catch(() => showAlert("加载草稿失败，请重试"));
+    .catch(() => showAlert("加载待借草稿失败，请重试"));
 }
 
 function showWheelPicker(drafts) {
@@ -225,7 +225,7 @@ function showWheelPicker(drafts) {
       <div id="draft-picker-sheet">
         <div id="dp-header">
           <button id="dp-cancel">取消</button>
-          <span id="dp-title">选择草稿</span>
+          <span id="dp-title">选择待借草稿</span>
           <button id="dp-confirm">确定</button>
         </div>
         <div id="dp-wheel-wrap">
@@ -341,10 +341,10 @@ function loadOrder(borrowOrderId) {
       groupedData[borrowOrderId] = {
         borrower: null,
         savedAt:  null,
-        items: res.data.map(it => ({ ...it, _scanned: it.status === '草稿' }))
+        items: res.data.map(it => ({ ...it, _scanned: it.status === '待借草稿' }))
       };
       if (res.has_draft) {
-        const draftItem = res.data.find(it => it.status === '草稿');
+        const draftItem = res.data.find(it => it.status === '待借草稿');
         if (draftItem) groupedData[borrowOrderId].savedAt = draftItem.borrow_time;
       }
       renderList();
@@ -353,7 +353,7 @@ function loadOrder(borrowOrderId) {
     .catch(() => showAlert("加载失败，请重试"));
 }
 
-// ── 保存草稿 ──────────────────────────────────────────────────────────────
+// ── 保存待借草稿 ──────────────────────────────────────────────────────────────
 function saveDraft(borrowOrderId) {
   const group = groupedData[borrowOrderId];
   if (!group) return;
@@ -365,7 +365,7 @@ function saveDraft(borrowOrderId) {
   )];
 
   if (scannedNos.length === 0) {
-    showAlert(`单号【${borrowOrderId}】还未扫任何图纸，无需保存草稿。`);
+    showAlert(`单号【${borrowOrderId}】还未扫任何图纸，无需保存待借草稿。`);
     return;
   }
 
@@ -379,15 +379,15 @@ function saveDraft(borrowOrderId) {
     if (res.code === 0) {
       group.savedAt = res.saved_at;
       group.items.forEach(it => {
-        if (it._scanned && it.status !== '无图') it.status = '草稿';
+        if (it._scanned && it.status !== '无图') it.status = '待借草稿';
       });
       renderList();
-      showToast(`草稿已保存（${res.saved_at}）`, "success");
+      showToast(`待借草稿已保存（${res.saved_at}）`, "success");
     } else {
       showAlert(res.msg || "保存失败，请重试");
     }
   })
-  .catch(() => showAlert("网络异常，保存草稿失败"));
+  .catch(() => showAlert("网络异常，保存待借草稿失败"));
 }
 
 // ── 提交借出 ──────────────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ function renderList() {
       : `<span class="borrower-unset">请点击选择借用人</span>`;
 
     const draftTag = group.savedAt
-      ? `<span class="draft-tag">草稿 ${group.savedAt}</span>`
+      ? `<span class="draft-tag">待借草稿 ${group.savedAt}</span>`
       : '';
 
     // 出借管理人展示行
@@ -570,7 +570,7 @@ function renderList() {
 
         <div class="group-actions">
           <button class="btn-save-draft" onclick="saveDraft('${bNum}')">
-            💾 保存草稿
+            💾 保存待借草稿
           </button>
           <button class="btn-submit-order ${allDone ? '' : 'btn-disabled'}"
                   onclick="submitOrder('${bNum}')"
@@ -585,12 +585,15 @@ function renderList() {
 // ── 状态样式映射 ──────────────────────────────────────────────────────────
 function statusStyle(status) {
   switch (status) {
-    case '已扫码':  return { cls: 'badge-scanned',   label: '已扫码' };
-    case '草稿':    return { cls: 'badge-draft',      label: '草稿'   };
-    case '已借出':  return { cls: 'badge-out',        label: '已借出' };
-    case '已归还':  return { cls: 'badge-returned',   label: '已归还' };
-    case '无图':    return { cls: 'badge-nodrawing',  label: '无图'   };
-    default:        return { cls: 'badge-pending',    label: '待借出' };
+    case '已扫码':    return { cls: 'badge-scanned',     label: '已扫码' };
+    case '待借草稿':  return { cls: 'badge-draft',       label: '待借草稿' };
+    case '已借出':    return { cls: 'badge-out',         label: '已借出' };
+    case '待还草稿':  return { cls: 'badge-draft-ret1',  label: '待还草稿' };
+    case '待归还':    return { cls: 'badge-pending-ret', label: '待归还' };
+    case '已还草稿':  return { cls: 'badge-draft-ret2',  label: '已还草稿' };
+    case '已归还':    return { cls: 'badge-returned',    label: '已归还' };
+    case '无图':      return { cls: 'badge-nodrawing',   label: '无图'   };
+    default:          return { cls: 'badge-pending',     label: '待借出' };
   }
 }
 

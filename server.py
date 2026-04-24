@@ -20,11 +20,14 @@ APP_ID      = os.getenv("APP_ID")
 APP_SECRET  = os.getenv("APP_SECRET")
 FEISHU_HOST = os.getenv("FEISHU_HOST")
 
-STATUS_PENDING  = '待借出'
-STATUS_DRAFT    = '草稿'
-STATUS_OUT      = '已借出'
-STATUS_RETURNED = '已归还'
-STATUS_NODRAW   = '无图'
+STATUS_PENDING     = '待借出'
+STATUS_DRAFT_OUT   = '待借草稿'
+STATUS_OUT         = '已借出'
+STATUS_DRAFT_RET_1 = '待还草稿'
+STATUS_PENDING_RET = '待归还'
+STATUS_DRAFT_RET_2 = '已还草稿'
+STATUS_RETURNED    = '已归还'
+STATUS_NODRAW      = '无图'
 
 
 def get_conn():
@@ -162,7 +165,7 @@ def get_order_detail(borrow_order_id):
     data      = [dict(r) for r in rows]
     non_draw  = [r for r in data if r['status'] != STATUS_NODRAW]
     all_out   = bool(non_draw) and all(r['status'] == STATUS_OUT for r in non_draw)
-    has_draft = any(r['status'] == STATUS_DRAFT for r in data)
+    has_draft = any(r['status'] == STATUS_DRAFT_OUT for r in data)
 
     return jsonify({"code": 0, "msg": "ok", "data": data,
                     "all_out": all_out, "has_draft": has_draft})
@@ -179,7 +182,7 @@ def get_drafts():
            WHERE status = ?
            GROUP BY borrow_order_id
            ORDER BY saved_at DESC''',
-        (STATUS_DRAFT,)
+        (STATUS_DRAFT_OUT,)
     ).fetchall()
     conn.close()
     return jsonify({"code": 0, "data": [dict(r) for r in rows]})
@@ -199,14 +202,14 @@ def save_draft():
     conn.execute(
         "UPDATE drawing_records SET status=?, borrow_time=NULL "
         "WHERE borrow_order_id=? AND status=?",
-        (STATUS_PENDING, borrow_order_id, STATUS_DRAFT)
+        (STATUS_PENDING, borrow_order_id, STATUS_DRAFT_OUT)
     )
     if scanned_nos:
         ph = ','.join('?' * len(scanned_nos))
         conn.execute(
             f"UPDATE drawing_records SET status=?, borrow_time=? "
             f"WHERE borrow_order_id=? AND chart_no IN ({ph}) AND status!=?",
-            [STATUS_DRAFT, saved_at, borrow_order_id] + scanned_nos + [STATUS_NODRAW]
+            [STATUS_DRAFT_OUT, saved_at, borrow_order_id] + scanned_nos + [STATUS_NODRAW]
         )
     conn.commit()
     conn.close()
