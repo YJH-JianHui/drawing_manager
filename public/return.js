@@ -87,7 +87,7 @@ function startScan() {
   });
 }
 
-// ── 3. 智能载入归还单并区分处理步骤 ─────────────────────────
+// ── 3. 智能载入归还单并展示全文明细 ─────────────────────────
 function loadOrder(borrowOrderId, callback) {
   if (groupedData[borrowOrderId]) {
     showToast(`单号 ${borrowOrderId} 已加载`, "success");
@@ -103,20 +103,16 @@ function loadOrder(borrowOrderId, callback) {
       const step2Items = res.data.filter(it => it.status === '待归还' || it.status === '已还草稿');
 
       let step = 0;
-      let actionableItems =[];
 
-      // 智能判定：根据图纸情况和用户角色，分派当前可操作的图纸
+      // 智能判定当前可执行的步骤
       const canDoStep1 = isBorrower() && step1Items.length > 0;
       const canDoStep2 = isAdmin() && step2Items.length > 0;
 
       if (canDoStep1) {
         step = 1;
-        actionableItems = step1Items;
       } else if (canDoStep2) {
         step = 2;
-        actionableItems = step2Items;
       } else {
-        // 给出最精确的拦截提示
         if (step1Items.length === 0 && step2Items.length === 0) {
           return showAlert(`单号【${borrowOrderId}】已全部归还完成，无法再次操作。`, startScan);
         } else if (step1Items.length > 0 && !isBorrower()) {
@@ -126,15 +122,26 @@ function loadOrder(borrowOrderId, callback) {
         }
       }
 
-      const processedItems = actionableItems.map(it => ({
-        ...it,
-        // 如果是从草稿读取的，默认勾选为已扫码
-        _scanned: (step === 1 && it.status === '待还草稿') || (step === 2 && it.status === '已还草稿')
-      }));
+      // [核心修改]：保留整单所有明细，添加 _isActionable (当前阶段可操作) 标记
+      const processedItems = res.data.map(it => {
+        let scanned = false;
+        let isActionable = false;
+
+        // 如果图纸属于当前步骤的管辖范围，标记为可操作
+        if (step === 1 && (it.status === '待还草稿' || it.status === '已借出')) {
+          isActionable = true;
+          if (it.status === '待还草稿') scanned = true;
+        } else if (step === 2 && (it.status === '已还草稿' || it.status === '待归还')) {
+          isActionable = true;
+          if (it.status === '已还草稿') scanned = true;
+        }
+
+        return { ...it, _scanned: scanned, _isActionable: isActionable };
+      });
 
       const bName = res.data.find(it => it.borrower_name)?.borrower_name || "未知";
       let savedAt = null;
-      const draftIt = actionableItems.find(it => (step === 1 && it.status === '待还草稿') || (step === 2 && it.status === '已还草稿'));
+      const draftIt = processedItems.find(it => (step === 1 && it.status === '待还草稿') || (step === 2 && it.status === '已还草稿'));
       if (draftIt) savedAt = draftIt.return_time;
 
       groupedData[borrowOrderId] = { step, borrower_name: bName, savedAt, items: processedItems };
@@ -151,19 +158,29 @@ function hitChart(borrowOrderId, chartNo, rawOrderNum) {
   const byChart = group.items.filter(it => it.chart_no === chartNo);
 
   if (byChart.length === 0) {
-    return showAlert(`图号【${chartNo}】不在此阶段处理范围内。`, startScan);
+    return showAlert(`图号【${chartNo}】不在该借用单中。`, startScan);
   }
 
-  if (byChart.every(it => it._scanned)) {
+  // [核心修改]：只允许操作标记为 _isActionable 的图纸
+  const actionable = byChart.filter(it => it._isActionable);
+
+  if (actionable.length === 0) {
+    return showAlert(`图号【${chartNo}】当前状态不支持在该阶段归还。`, startScan);
+  }
+
+  if (actionable.every(it => it._scanned)) {
     return showAlert(`该图纸已扫码，无需重复。`, startScan);
   }
 
-  byChart.forEach(it => { it._scanned = true; });
+  actionable.forEach(it => { it._scanned = true; });
   renderList();
 
-  const allDone = group.items.every(it => it._scanned);
+  // 提示语：检查当前步骤下可操作的图纸是否全部扫完
+  const allActionable = group.items.filter(it => it._isActionable);
+  const allDone = allActionable.every(it => it._scanned);
+
   if (allDone) {
-    showToast("✅ 全部扫码完毕！", "success");
+    showToast("✅ 可归还的图纸已全部扫码完毕！", "success");
   } else {
     showToast(`扫码成功: ${chartNo}`, "success");
     setTimeout(startScan, 1000);
@@ -184,11 +201,14 @@ function renderList() {
 
   keys.forEach(bNum => {
     const group = groupedData[bNum];
-    const total = group.items.length;
-    const scanned = group.items.filter(it => it._scanned).length;
+
+    // [核心修改]：右上角进度条的基数，应该是【当前步骤可操作】的图纸数量，而不是整单数量
+    const actionableItems = group.items.filter(it => it._isActionable);
+    const totalActionable = actionableItems.length;
+    const scanned = actionableItems.filter(it => it._scanned).length;
 
     const canSubmit = scanned > 0;
-    const allDoneForProgress = total > 0 && scanned === total;
+    const allDoneForProgress = totalActionable > 0 && scanned === totalActionable;
 
     const stepName = group.step === 1 ? "第1步: 借图员发起归还" : "第2步: 管理员确认归还";
     const opRole   = group.step === 1 ? "借图员 (发起归还)" : "图纸管理员 (确认归还)";
@@ -196,7 +216,6 @@ function renderList() {
 
     const draftTag = group.savedAt ? `<span class="draft-tag">${stepName} | 草稿 ${group.savedAt}</span>` : `<span class="draft-tag">${stepName}</span>`;
 
-    // [核心修改]：补充了类型和用途的表格单元格
     const rowsHtml = group.items.map(it => {
       let displayStatus = it.status;
       if (it._scanned) {
@@ -204,8 +223,11 @@ function renderList() {
       }
       const { cls, label } = statusStyle(displayStatus);
 
+      // [核心体验优化]：将当前步骤【不可操作】的图纸(如已经归还的、还没借出的)变为半透明，以示区别
+      const rowStyle = it._isActionable ? '' : 'opacity: 0.55; background: #fafbfc;';
+
       return `
-        <tr class="item-row ${it._scanned ? 'row-scanned' : ''}">
+        <tr class="item-row ${it._scanned ? 'row-scanned' : ''}" style="${rowStyle}">
           <td class="item-cell cell-seq">${it.seq_no || ''}</td>
           <td class="item-cell cell-chart">
             <div class="chart-no">${it.chart_no}</div>
@@ -226,8 +248,8 @@ function renderList() {
             <div class="group-title">单号：${bNum}</div>
             ${draftTag}
           </div>
-          <div class="group-progress ${allDoneForProgress ? 'progress-done' : ''}">
-            ${scanned} / ${total} ${allDoneForProgress ? ' ✓' : ''}
+          <div class="group-progress ${allDoneForProgress ? 'progress-done' : ''}" title="当前步骤归还进度">
+            ${scanned} / ${totalActionable} ${allDoneForProgress ? ' ✓' : ''}
           </div>
         </div>
         
@@ -245,7 +267,6 @@ function renderList() {
 
         <table class="item-table">
           <thead>
-            <!-- [核心修改]：补充了类型和用途的表头 -->
             <tr>
               <th class="th-seq">序号</th>
               <th class="th-chart">图号 / 工作令</th>
@@ -275,7 +296,8 @@ function renderList() {
 // ── 5. 保存与提交动作 ────────────────────────────────────────
 function saveReturnDraft(bNum) {
   const group = groupedData[bNum];
-  const scannedNos = group.items.filter(it => it._scanned).map(it => it.chart_no);
+  // 只抓取可操作且被扫码的图纸
+  const scannedNos = group.items.filter(it => it._isActionable && it._scanned).map(it => it.chart_no);
 
   if (scannedNos.length === 0) {
     return showAlert("未扫码任何图纸，无需保存。");
@@ -294,9 +316,10 @@ function saveReturnDraft(bNum) {
   .then(res => {
     if (res.code === 0) {
       group.savedAt = res.saved_at;
-      // 真实改变内存中 items 的状态，方便重新渲染
       group.items.forEach(it => {
-        if (it._scanned) it.status = (group.step === 1) ? '待还草稿' : '已还草稿';
+        if (it._isActionable && it._scanned) {
+          it.status = (group.step === 1) ? '待还草稿' : '已还草稿';
+        }
       });
       renderList();
       showToast("草稿保存成功", "success");
@@ -309,9 +332,8 @@ function saveReturnDraft(bNum) {
 
 function submitReturn(bNum) {
   const group = groupedData[bNum];
-
-  // 提取用户实际扫码的图纸
-  const scannedNos = group.items.filter(it => it._scanned).map(it => it.chart_no);
+  // 只抓取可操作且被扫码的图纸
+  const scannedNos = group.items.filter(it => it._isActionable && it._scanned).map(it => it.chart_no);
 
   if (scannedNos.length === 0) {
     return showAlert("请至少扫码一张图纸后再提交！");
@@ -319,13 +341,12 @@ function submitReturn(bNum) {
 
   if (!confirm(`确认提交单据【${bNum}】中已扫码的 ${scannedNos.length} 项图纸吗？\n(未扫码的图纸可下次再还)`)) return;
 
-  // 将实际扫码的图纸传给后端
   fetch('/api/return/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       borrow_order_id: bNum,
-      scanned_chart_nos: scannedNos, // <-- 仅提交已扫部分
+      scanned_chart_nos: scannedNos,
       step: group.step,
       user_name: currentUser.name,
       user_id: currentUser.id
